@@ -19,6 +19,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os/exec"
 	"strings"
@@ -104,8 +105,8 @@ func CheckTLS(ctx context.Context, hostport string, now time.Time, roots *x509.C
 }
 
 // inspectCerts turns a presented certificate chain into a report. It is
-// separate from the dialling so the interesting cases — a full chain, an
-// expired leaf, a server that presents nothing — can be examined directly.
+// separate from the dialling so the interesting cases (a full chain, an
+// expired leaf, a server that presents nothing) can be examined directly.
 func inspectCerts(certs []*x509.Certificate, host string, now time.Time, roots *x509.CertPool) TLSInfo {
 	info := TLSInfo{Attempted: true}
 	if len(certs) == 0 {
@@ -235,6 +236,60 @@ func CheckFirewall(ctx context.Context, run Runner, port int) Firewall {
 		return fw
 	}
 	return Firewall{Hint: "could not inspect a host firewall; check your cloud provider's security group as well"}
+}
+
+// Scope says where a host can be reached from, which is what decides whether
+// plain http is a problem or a perfectly reasonable choice.
+type Scope int
+
+const (
+	// Public is reachable from the internet, so anything sent in clear text is
+	// readable by every network in between.
+	Public Scope = iota
+	// Private is a LAN, a container network or a VPN subnet.
+	Private
+	// Loopback never leaves the machine.
+	Loopback
+	// Encrypted is a network that encrypts the connection itself, so plain
+	// http on top of it is still private. Tailscale is the common case.
+	Encrypted
+)
+
+// tailscaleCGNAT is the range Tailscale assigns to nodes (100.64.0.0/10).
+var tailscaleCGNAT = netip.MustParsePrefix("100.64.0.0/10")
+
+// HostScope classifies a host name or address. Names are matched by suffix,
+// which is all that can be done without resolving them, and resolving is not
+// this function's job: it answers "what did the operator configure", not "what
+// does it point at today".
+func HostScope(host string) Scope {
+	host = strings.ToLower(strings.Trim(host, "[]"))
+	if host == "" {
+		return Public
+	}
+	if addr, err := netip.ParseAddr(host); err == nil {
+		switch {
+		case addr.IsLoopback():
+			return Loopback
+		case tailscaleCGNAT.Contains(addr):
+			return Encrypted
+		case addr.IsPrivate(), addr.IsLinkLocalUnicast(), addr.IsLinkLocalMulticast():
+			return Private
+		}
+		return Public
+	}
+	switch {
+	case host == "localhost", strings.HasSuffix(host, ".localhost"):
+		return Loopback
+	case strings.HasSuffix(host, ".ts.net"):
+		return Encrypted
+	}
+	for _, suffix := range []string{".local", ".internal", ".lan", ".home.arpa", ".home", ".localdomain"} {
+		if strings.HasSuffix(host, suffix) {
+			return Private
+		}
+	}
+	return Public
 }
 
 // Listening reports whether something accepts TCP connections on addr.

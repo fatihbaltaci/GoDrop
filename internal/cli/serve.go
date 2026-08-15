@@ -25,8 +25,17 @@ func newServeCmd(build Build) *cobra.Command {
 	return &cobra.Command{
 		Use:   "serve",
 		Short: "Start the HTTP server",
-		Args:  cobra.NoArgs,
-		RunE:  func(cmd *cobra.Command, _ []string) error { return runServe(cmd, build) },
+		Long: `Start the HTTP server.
+
+Everything is configured through the environment, so there are no flags to
+learn and the same settings work under systemd, Docker and a bare shell. See
+.env.example for the annotated list, or run "godrop doctor" to see what the
+current environment actually resolves to.
+
+Plain http is fine on loopback, on a private network or over Tailscale. Put a
+reverse proxy in front for TLS on a public address.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error { return runServe(cmd, build) },
 	}
 }
 
@@ -53,7 +62,7 @@ func runServe(cmd *cobra.Command, build Build) error {
 		logger.Error("token file could not be reloaded; still using the last good copy", "err", err.Error())
 	})
 	if tokenStore.Count() == 0 {
-		return errors.New(`no API tokens configured — refusing to start with unauthenticated uploads.
+		return errors.New(`no API tokens configured, refusing to start with unauthenticated uploads.
 
   Create one:   godrop token create --name default
   Or set:       GODROP_TOKENS=<token>            (handy on Docker, Fly, Railway)
@@ -100,7 +109,7 @@ func runServe(cmd *cobra.Command, build Build) error {
 	case !cfg.Telemetry || telemetry.Disabled(store.Root()):
 		logger.Info("telemetry disabled")
 	default:
-		logger.Info("anonymous telemetry is on — install id, version and platform only; disable with GODROP_TELEMETRY=off")
+		logger.Info("anonymous telemetry is on: install id, version and platform only; disable with GODROP_TELEMETRY=off")
 		go tel.Run(ctx)
 	}
 

@@ -264,7 +264,7 @@ func (r *runner) checkPersistence(dir string) {
 		}
 	}
 	r.add("storage", "persistence", Fail,
-		dir+" is inside the container filesystem, not a volume — uploads are lost on restart",
+		dir+" is inside the container filesystem, not a volume, so uploads are lost on restart",
 		"mount a volume: docker run -v godrop-data:/data ... (Fly: [mounts], Render: disk, Railway: volume)")
 }
 
@@ -310,13 +310,7 @@ func (r *runner) checkSecurity() {
 
 	r.checkEnvFile()
 
-	if r.Config.BaseURL != "" && strings.HasPrefix(r.Config.BaseURL, "http://") &&
-		!strings.Contains(r.Config.BaseURL, "localhost") && !strings.Contains(r.Config.BaseURL, "127.0.0.1") {
-		r.add(g, "https", Fail, "GODROP_BASE_URL uses plain http; tokens travel in clear text",
-			"put Caddy or nginx in front for automatic TLS (see deploy/Caddyfile)")
-	} else if r.Config.BaseURL != "" {
-		r.add(g, "https", Pass, "TLS in use", "")
-	}
+	r.checkTransport(g)
 
 	for _, o := range r.Config.CORSOrigins {
 		if o == "*" {
@@ -331,6 +325,41 @@ func (r *runner) checkSecurity() {
 			"run as an unprivileged user; the systemd unit in deploy/ already does")
 	} else if uid > 0 {
 		r.add(g, "privileges", Pass, fmt.Sprintf("uid=%d", uid), "")
+	}
+}
+
+// checkTransport judges plain http by where the service is reachable from.
+//
+// Clear text is only a problem where somebody can read it. On loopback nothing
+// leaves the machine, and on Tailscale the connection is already encrypted, so
+// running without TLS there is a sensible choice rather than an oversight. On
+// a LAN it is a trade-off worth naming, and on a public address it is a real
+// problem: every token travels in the open.
+func (r *runner) checkTransport(g string) {
+	base := r.Config.BaseURL
+	if base == "" {
+		return
+	}
+	if !strings.HasPrefix(base, "http://") {
+		r.add(g, "https", Pass, "TLS in use", "")
+		return
+	}
+	u, err := url.Parse(base)
+	if err != nil {
+		return // the base_url check has already reported this
+	}
+	switch netcheck.HostScope(u.Hostname()) {
+	case netcheck.Loopback:
+		r.add(g, "https", Pass, "plain http on the loopback address, which never leaves this machine", "")
+	case netcheck.Encrypted:
+		r.add(g, "https", Pass, "plain http over Tailscale, which encrypts the connection itself", "")
+	case netcheck.Private:
+		r.add(g, "https", Warn,
+			fmt.Sprintf("plain http on a private address (%s); tokens are readable on the local network", u.Hostname()),
+			"fine on a network you trust. For TLS on a private name, put Caddy in front with a certificate from your own CA")
+	default:
+		r.add(g, "https", Fail, "GODROP_BASE_URL uses plain http on a public address; tokens travel in clear text",
+			"put Caddy or nginx in front for automatic TLS (see deploy/Caddyfile)")
 	}
 }
 
@@ -351,7 +380,7 @@ func (r *runner) checkEnvFile() {
 		r.add("security", "env_file_perms", Pass, fmt.Sprintf("%#o", perm), "")
 	}
 	if gitTracked(dir, ".env") {
-		r.add("security", "env_in_git", Fail, ".env is tracked by git — your tokens are in the repository",
+		r.add("security", "env_in_git", Fail, ".env is tracked by git, so your tokens are in the repository",
 			"git rm --cached .env && echo .env >> .gitignore")
 	}
 }
@@ -495,7 +524,7 @@ func (r *runner) checkEndToEnd(ctx context.Context) {
 	if resp.StatusCode == http.StatusRequestEntityTooLarge && !strings.Contains(string(data), `"error"`) {
 		r.add(g, "proxy_body_limit", Fail,
 			"a proxy rejected a tiny upload with 413 before it reached GoDrop",
-			"raise the proxy limit — nginx: client_max_body_size 100m;  Caddy: request_body { max_size 100MB }")
+			"raise the proxy limit. nginx: client_max_body_size 100m;  Caddy: request_body { max_size 100MB }")
 		return
 	}
 	if resp.StatusCode != http.StatusCreated {

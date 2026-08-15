@@ -475,7 +475,7 @@ func TestInspectCertsValidatesAFullChain(t *testing.T) {
 		t.Errorf("DaysLeft = %d, want 1", info.DaysLeft)
 	}
 
-	// Without the intermediate the chain cannot be built — the classic
+	// Without the intermediate the chain cannot be built, the classic
 	// "works in curl, fails in a browser" misconfiguration.
 	if got := inspectCerts([]*x509.Certificate{leaf}, "files.example.com", time.Now(), roots); got.Valid {
 		t.Error("an incomplete chain must not validate")
@@ -517,4 +517,33 @@ func makeCert(t *testing.T, name string, parent *x509.Certificate, parentKey *ec
 		t.Fatal(err)
 	}
 	return cert, key
+}
+
+func TestHostScopeDecidesWhetherPlainHTTPIsAProblem(t *testing.T) {
+	cases := map[string]Scope{
+		"localhost":              Loopback,
+		"app.localhost":          Loopback,
+		"127.0.0.1":              Loopback,
+		"::1":                    Loopback,
+		"[::1]":                  Loopback,
+		"100.101.102.103":        Encrypted, // Tailscale hands out this range
+		"laptop.tail1234.ts.net": Encrypted,
+		"10.0.0.5":               Private,
+		"192.168.1.10":           Private,
+		"172.16.4.4":             Private,
+		"169.254.1.1":            Private,
+		"fd00::1":                Private,
+		"nas.local":              Private,
+		"godrop.internal":        Private,
+		"box.lan":                Private,
+		"files.example.com":      Public,
+		"5.9.1.2":                Public,
+		"172.32.0.1":             Public, // just outside the private range
+		"":                       Public,
+	}
+	for host, want := range cases {
+		if got := HostScope(host); got != want {
+			t.Errorf("HostScope(%q) = %v, want %v", host, got, want)
+		}
+	}
 }

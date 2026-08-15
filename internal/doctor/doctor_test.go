@@ -96,7 +96,7 @@ func TestHealthyInstallationPasses(t *testing.T) {
 	if report.Failed() {
 		for _, c := range report.Checks {
 			if c.Status == Fail {
-				t.Errorf("unexpected failure: %s — %s", c.Name, c.Detail)
+				t.Errorf("unexpected failure: %s: %s", c.Name, c.Detail)
 			}
 		}
 	}
@@ -370,11 +370,39 @@ func TestPlainHTTPBaseURLFails(t *testing.T) {
 	}
 }
 
-func TestLocalHTTPBaseURLIsAccepted(t *testing.T) {
+func TestPlainHTTPIsJudgedByWhoCanReadIt(t *testing.T) {
+	// Clear text only matters where somebody can see it. Plenty of people run
+	// GoDrop on their own machine, on a home network or over Tailscale, and
+	// failing the report for those would be wrong.
+	cases := []struct {
+		base   string
+		status Status
+		detail string
+	}{
+		{"http://localhost:8080", Pass, "never leaves this machine"},
+		{"http://127.0.0.1:8080", Pass, "never leaves this machine"},
+		{"http://laptop.tail1234.ts.net", Pass, "Tailscale"},
+		{"http://100.101.102.103:8080", Pass, "Tailscale"},
+		{"http://192.168.1.10:8080", Warn, "local network"},
+		{"http://nas.local:8080", Warn, "local network"},
+		{"https://files.example.com", Pass, "TLS in use"},
+	}
+	for _, tc := range cases {
+		cfg := baseConfig(t)
+		cfg.BaseURL = tc.base
+		c := find(t, Run(context.Background(), offlineOptions(cfg)), "https")
+		if c.Status != tc.status || !strings.Contains(c.Detail, tc.detail) {
+			t.Errorf("%s: https = %+v, want %v containing %q", tc.base, c, tc.status, tc.detail)
+		}
+	}
+}
+
+func TestAMalformedBaseURLLeavesTheTransportCheckToBaseURL(t *testing.T) {
 	cfg := baseConfig(t)
-	cfg.BaseURL = "http://localhost:8080"
-	if c := find(t, Run(context.Background(), offlineOptions(cfg)), "https"); c.Status == Fail {
-		t.Errorf("a local URL should not be flagged: %+v", c)
+	cfg.BaseURL = "http://a b"
+	report := Run(context.Background(), offlineOptions(cfg))
+	if has(report, "https") {
+		t.Error("a URL that cannot be parsed is the base_url check's problem, not this one")
 	}
 }
 
@@ -486,7 +514,7 @@ func mustStore(t *testing.T, cfg *config.Config) *storage.Store {
 func TestEndToEndRefusesAURLPointingSomewhereElse(t *testing.T) {
 	// The round trip fetches, and then deletes with the API token attached,
 	// whatever URL the server hands back. A server that answered with an
-	// address elsewhere would get the token sent there — and a request made
+	// address elsewhere would get the token sent there, and a request made
 	// from inside the operator's network.
 	var elsewhere atomic.Int64
 	victim := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -559,7 +587,7 @@ func TestEndToEndDetectsABadToken(t *testing.T) {
 
 func TestEndToEndDetectsAProxyBodyLimit(t *testing.T) {
 	// A proxy that answers 413 with an HTML error page, before GoDrop sees the
-	// request — the classic nginx client_max_body_size trap.
+	// request: the classic nginx client_max_body_size trap.
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusRequestEntityTooLarge)
 		_, _ = w.Write([]byte("<html><body>413 Request Entity Too Large</body></html>"))
