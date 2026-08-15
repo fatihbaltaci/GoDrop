@@ -11,8 +11,8 @@
 // It is unauthenticated, so it is deliberately kept as narrow as an outbound
 // request primitive can be: one GET, to a health endpoint only, no query
 // string, a bounded request body and an eight-second ceiling. Volume is the
-// one thing it cannot limit by itself — that belongs to a Cloudflare rate
-// limiting rule on /api/check, which site/README.md describes.
+// one thing it cannot limit by itself, and that belongs to a Cloudflare rate
+// limiting rule on /api/check, which worker/README.md describes.
 
 const TIMEOUT_MS = 8000;
 const MAX_URL_LENGTH = 2048;
@@ -20,7 +20,7 @@ const MAX_BODY_BYTES = 4096;
 
 // The only thing this endpoint exists to fetch is a health endpoint. Anything
 // else would make it a general "fetch this URL for me" service on the open
-// internet — a free scanner and a status oracle for anyone who finds it.
+// internet, a free scanner and a status oracle for anyone who finds it.
 const ALLOWED_PATHS = [/^\/?$/, /\/healthz$/];
 
 // Hosts that would make this a proxy into private infrastructure. Cloudflare's
@@ -80,7 +80,7 @@ const json = (body, status = 200) =>
     },
   });
 
-export async function onRequestOptions() {
+export function handleOptions() {
   return new Response(null, {
     status: 204,
     headers: {
@@ -92,7 +92,7 @@ export async function onRequestOptions() {
   });
 }
 
-export async function onRequestPost({ request }) {
+export async function handleCheck(request) {
   const body = await readBounded(request, MAX_BODY_BYTES);
   if (body === null) {
     return json({ ok: false, error: "body too large" }, 413);
@@ -171,16 +171,14 @@ export async function onRequestPost({ request }) {
       location: request.cf?.colo ?? "",
       duration_ms: Date.now() - started,
       error: aborted
-        ? `no answer within ${TIMEOUT_MS / 1000}s — the port is probably closed or filtered`
+        ? `no answer within ${TIMEOUT_MS / 1000}s, the port is probably closed or filtered`
         : `could not connect: ${err?.message ?? "unknown error"}`,
     });
   }
 }
 
 // Anything other than POST gets a usable hint rather than a bare 405.
-export async function onRequest({ request }) {
-  if (request.method === "POST") return onRequestPost({ request });
-  if (request.method === "OPTIONS") return onRequestOptions();
+export function handleOther() {
   return json({
     ok: false,
     error: 'POST {"url":"https://files.example.com/healthz"} to check reachability',

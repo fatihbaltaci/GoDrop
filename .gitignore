@@ -9,6 +9,10 @@
 .env
 *.local
 
+# Copied into the site at build time by the Cloudflare deploy
+/site/install.sh
+node_modules/
+
 # Coverage
 coverage.out
 coverage.html

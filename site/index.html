@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GoDrop — upload a file, get a URL</title>
+<title>GoDrop: upload a file, get a URL</title>
 <meta name="description" content="A tiny self-hosted file host in Go. Upload a file with a token, get back a public URL nobody can guess.">
 <meta property="og:title" content="GoDrop">
 <meta property="og:description" content="Upload a file, get a hard-to-guess URL. One binary, no database.">
@@ -134,7 +134,7 @@ curl -X POST -H "Authorization: Bearer $GODROP_TOKEN" \
 
 <span class="out">{"url":"https://files.example.com/f/20260815-143022-8f4e…/photo.jpg", "files":[…]}</span>
 
-<span class="cmt"># download — no token needed</span>
+<span class="cmt"># download, no token needed</span>
 curl -O https://files.example.com/f/20260815-143022-8f4e…/photo.jpg
 
 <span class="cmt"># delete</span>
@@ -153,7 +153,7 @@ curl -X DELETE -H "Authorization: Bearer $GODROP_TOKEN" \
 
   <h2>For AI agents</h2>
   <p>
-    Give an agent two values — a base URL and a token — and it can work out the
+    Give an agent two values, a base URL and a token, and it can work out the
     rest by itself:
   </p>
 <pre><code>curl https://files.example.com/llms.txt      <span class="cmt"># the whole API in plain text</span>
@@ -165,9 +165,9 @@ curl https://files.example.com/openapi.yaml  <span class="cmt"># machine-readabl
 
   <h2>Run it anywhere</h2>
   <ul>
-    <li><strong>Docker</strong> — <code>docker run -v godrop-data:/data ghcr.io/fatihbaltaci/godrop</code></li>
-    <li><strong>A plain VPS</strong> — one binary and a hardened systemd unit</li>
-    <li><strong>Fly.io, Railway, Render</strong> — ready-made manifests, each with a volume</li>
+    <li><strong>Docker</strong>: <code>docker run -v godrop-data:/data ghcr.io/fatihbaltaci/godrop</code></li>
+    <li><strong>A plain VPS</strong>: one binary and a hardened systemd unit</li>
+    <li><strong>Fly.io, Railway, Render</strong>: ready-made manifests, each with a volume</li>
   </ul>
   <p class="note">
     Not Vercel or Cloudflare Workers: their filesystems are ephemeral, so an

@@ -1,0 +1,23 @@
+// godrop.sh: the landing page, the install script and the reachability probe.
+//
+// Deployed by Cloudflare Workers Builds on every push to main. The build
+// command copies install.sh into the asset directory so that
+// https://godrop.sh/install.sh serves the same file the repository holds:
+//
+//   Build command:   cp install.sh site/install.sh
+//   Deploy command:  npx wrangler deploy
+//
+// Nothing here affects the GoDrop binary. It is the project's website.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "godrop",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-08-01",
+  "assets": {
+    "directory": "./site",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
