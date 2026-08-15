@@ -8,6 +8,12 @@ import (
 	"testing"
 )
 
+// absDir is a directory that is absolute on whatever platform the tests run on:
+// "/var/lib/godrop" is not an absolute path on Windows. Tests that assert on
+// the contents of a Linux-only artefact (a systemd unit, say) set the path they
+// need explicitly instead.
+var absDir = Defaults().DataDir
+
 func TestValidateBaseURL(t *testing.T) {
 	t.Parallel()
 	valid := []string{"", "  ", "https://files.example.com", "http://localhost:8080", "https://f.example.com/"}
@@ -71,7 +77,7 @@ func TestValidateRetention(t *testing.T) {
 
 func TestValidateDir(t *testing.T) {
 	t.Parallel()
-	if err := ValidateDir("/var/lib/godrop"); err != nil {
+	if err := ValidateDir(absDir); err != nil {
 		t.Errorf("ValidateDir = %v", err)
 	}
 	for _, v := range []string{"", "  ", "relative/path", "./data"} {
@@ -110,6 +116,7 @@ func TestEnvFileContainsEverythingNeededToRun(t *testing.T) {
 	a := Defaults()
 	a.BaseURL = "https://files.example.com"
 	a.Token = "gd_secret"
+	a.DataDir = "/var/lib/godrop"
 	a.Deployment = DeployEnv
 
 	env := EnvFile(a)
@@ -176,6 +183,7 @@ func TestSystemdUnitIsHardened(t *testing.T) {
 	t.Parallel()
 	a := Defaults()
 	a.Deployment = DeploySystemd
+	a.DataDir = "/var/lib/godrop" // a systemd unit is a Linux artefact
 	unit := SystemdUnit(a, "/usr/local/bin/godrop")
 
 	for _, want := range []string{
@@ -499,8 +507,9 @@ func (p *scriptedPrompter) Confirm(_, _ string, def bool) (bool, error) {
 
 func TestRunCollectsEveryAnswer(t *testing.T) {
 	t.Parallel()
+	dataDir := filepath.Join(absDir, "custom")
 	p := &scriptedPrompter{
-		inputs:   []string{"https://files.example.com", "/srv/godrop", "250MB", "50GB", "30d", "9000"},
+		inputs:   []string{"https://files.example.com", dataDir, "250MB", "50GB", "30d", "9000"},
 		selects:  []string{DeploySystemd},
 		confirms: []bool{false, false},
 	}
@@ -509,7 +518,7 @@ func TestRunCollectsEveryAnswer(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 	want := Answers{
-		BaseURL: "https://files.example.com", DataDir: "/srv/godrop",
+		BaseURL: "https://files.example.com", DataDir: dataDir,
 		MaxFileSize: "250MB", MaxTotalSize: "50GB", Retention: "30d",
 		Port: "9000", Deployment: DeploySystemd,
 	}
@@ -532,7 +541,7 @@ func TestRunKeepsDefaultsWhenAnswersAreEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if got.DataDir != "/var/lib/godrop" || got.MaxFileSize != "100MB" || got.Deployment != DeployCompose {
+	if got.DataDir != absDir || got.MaxFileSize != "100MB" || got.Deployment != DeployCompose {
 		t.Errorf("answers = %+v, want the defaults", got)
 	}
 	if !got.Telemetry || !got.ExternalCheck {

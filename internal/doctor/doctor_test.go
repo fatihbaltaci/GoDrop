@@ -240,13 +240,13 @@ func TestOrphansAreReported(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	real, err := st.Create("txt", strings.NewReader("real"), 100)
+	stored, err := st.Create("txt", strings.NewReader("real"), 100)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Beside a stored file, not in the root: files in the root belong to the
 	// service itself and are not uploads gone astray.
-	if err := os.WriteFile(filepath.Join(filepath.Dir(real.Path), "stray.txt"), []byte("junk"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(filepath.Dir(stored.Path), "stray.txt"), []byte("junk"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	c := find(t, Run(context.Background(), offlineOptions(cfg)), "orphans")
@@ -920,6 +920,10 @@ func TestInContainerAndGitTrackedHaveWorkingDefaults(t *testing.T) {
 }
 
 func TestPrivilegeCheckReportsTheCurrentUser(t *testing.T) {
+	if os.Geteuid() < 0 {
+		// Windows has no effective uid, so there is nothing to report there.
+		t.Skip("no effective user id on this platform")
+	}
 	c := find(t, Run(context.Background(), offlineOptions(baseConfig(t))), "privileges")
 	if os.Geteuid() == 0 && c.Status != Warn {
 		t.Errorf("running as root should warn, got %+v", c)

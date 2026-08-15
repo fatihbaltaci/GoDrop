@@ -194,7 +194,9 @@ func ExecRunner(ctx context.Context, name string, args ...string) (string, error
 	if _, err := exec.LookPath(name); err != nil {
 		return "", err
 	}
-	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
+	// The command and its arguments are literals from CheckFirewall, and no
+	// shell interprets them.
+	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput() //nolint:gosec // G204
 	return string(out), err
 }
 

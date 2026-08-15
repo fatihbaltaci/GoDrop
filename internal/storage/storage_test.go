@@ -71,8 +71,13 @@ func TestCreateWithoutExtension(t *testing.T) {
 	if f.Name() != f.ID {
 		t.Errorf("Name = %q, want the bare id", f.Name())
 	}
-	if _, _, err := s.Open(f.ID, ""); err != nil {
+	opened, _, err := s.Open(f.ID, "")
+	if err != nil {
 		t.Errorf("Open without extension: %v", err)
+	} else {
+		// Windows refuses to delete a file that is still open, which would only
+		// surface later as a temporary-directory cleanup failure.
+		_ = opened.Close()
 	}
 }
 

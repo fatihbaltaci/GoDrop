@@ -342,7 +342,10 @@ func TestFlagPrompterEchoesItsAnswers(t *testing.T) {
 	p := &flagPrompter{out: &output{w: &buf}}
 
 	p.Section("Storage", "ignored")
-	if got, err := p.Input("Data directory", "", "/var/lib/godrop", wizard.ValidateDir); err != nil || got != "/var/lib/godrop" {
+	// The default has to satisfy the validator on this platform: "/var/lib" is
+	// not an absolute path on Windows.
+	dataDir := wizard.Defaults().DataDir
+	if got, err := p.Input("Data directory", "", dataDir, wizard.ValidateDir); err != nil || got != dataDir {
 		t.Errorf("Input = %q, %v", got, err)
 	}
 	if got, err := p.Input("Public URL", "", "", nil); err != nil || got != "" {

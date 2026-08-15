@@ -103,7 +103,8 @@ var (
 // gitTracked reports whether a path is tracked in the repository at dir. A
 // missing git binary simply reports "not tracked".
 var gitTracked = func(dir, path string) bool {
-	cmd := exec.Command("git", "ls-files", "--error-unmatch", path)
+	// No shell is involved and path is a file name we produced, not user input.
+	cmd := exec.Command("git", "ls-files", "--error-unmatch", path) //nolint:gosec // G204
 	cmd.Dir = dir
 	return cmd.Run() == nil
 }

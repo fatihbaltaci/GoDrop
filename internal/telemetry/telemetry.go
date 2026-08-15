@@ -161,7 +161,9 @@ func (c *Client) Send(ctx context.Context) error {
 		return nil
 	}
 	// The payload is a fixed shape of strings, so encoding it cannot fail.
-	body, _ := json.Marshal(c.Payload())
+	// api_key is a PostHog project key, which is public by design — it ships in
+	// client-side JavaScript wherever PostHog is used.
+	body, _ := json.Marshal(c.Payload()) //nolint:gosec // G117
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.host+"/i/v0/e", bytes.NewReader(body))
 	if err != nil {
 		return err

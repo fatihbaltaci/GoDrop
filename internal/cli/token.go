@@ -12,7 +12,7 @@ import (
 	"github.com/fatihbaltaci/GoDrop/internal/tokens"
 )
 
-func newTokenCmd(build Build) *cobra.Command {
+func newTokenCmd(_ Build) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "token",
 		Short: "Create, list and revoke API tokens",

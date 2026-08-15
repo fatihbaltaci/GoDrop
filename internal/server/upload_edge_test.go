@@ -74,6 +74,14 @@ func TestRollbackFailureIsLoggedNotHidden(t *testing.T) {
 			_ = pw.CloseWithError(err)
 			return
 		}
+		// Starting the second part writes the boundary that ends the first one,
+		// so the server finishes and closes that file before we touch it. That
+		// ordering matters: Windows refuses to delete a file that is still open.
+		second, err := mw.CreateFormFile("file", "second.txt")
+		if err != nil {
+			_ = pw.CloseWithError(err)
+			return
+		}
 		// Wait until the first part has landed, then remove it behind the
 		// server's back so the rollback has nothing left to delete.
 		deadline := time.Now().Add(5 * time.Second)
@@ -85,11 +93,6 @@ func TestRollbackFailureIsLoggedNotHidden(t *testing.T) {
 		}
 		removeStoredFiles(t, h.store.Root())
 
-		second, err := mw.CreateFormFile("file", "second.txt")
-		if err != nil {
-			_ = pw.CloseWithError(err)
-			return
-		}
 		// Oversized, so the whole request is rolled back.
 		if _, err := io.WriteString(second, strings.Repeat("y", 200)); err != nil {
 			_ = pw.CloseWithError(err)

@@ -345,7 +345,7 @@ func (s *Store) Cleanup(age time.Duration) (removed int, freed int64, err error)
 // rescan recomputes the usage counters by walking the tree once at startup.
 func (s *Store) rescan() error {
 	var files, bytes int64
-	err := filepath.WalkDir(s.root, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(s.root, func(_ string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}

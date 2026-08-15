@@ -262,8 +262,8 @@ func clientIP(r *http.Request) string {
 			return first
 		}
 	}
-	if real := strings.TrimSpace(r.Header.Get("X-Real-IP")); real != "" {
-		return real
+	if direct := strings.TrimSpace(r.Header.Get("X-Real-IP")); direct != "" {
+		return direct
 	}
 	return host
 }
@@ -507,11 +507,11 @@ func (s *Server) resolve(r *http.Request) (id, ext, name string, ok bool) {
 	return id, ext, storage.JoinName(id, ext), true
 }
 
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "version": s.version})
 }
 
-func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleReady(w http.ResponseWriter, _ *http.Request) {
 	if err := s.store.Writable(); err != nil {
 		s.log.Error("readiness probe failed", "err", err.Error())
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
@@ -523,7 +523,7 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ready"})
 }
 
-func (s *Server) handleStats(w http.ResponseWriter, r *http.Request, _ string) {
+func (s *Server) handleStats(w http.ResponseWriter, _ *http.Request, _ string) {
 	files, bytes := s.store.Stats()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"files":       files,
@@ -536,7 +536,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request, _ string) {
 	})
 }
 
-func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleOpenAPI(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
 	_, _ = io.WriteString(w, openAPISpec)
 }

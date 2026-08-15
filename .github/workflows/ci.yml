@@ -122,9 +122,11 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           check-latest: true
 
+      # Pinned rather than "latest": a new release must not turn an unrelated
+      # pull request red, and the same version can be run locally.
       - uses: golangci/golangci-lint-action@v8
         with:
-          version: latest
+          version: v2.12.2
 
       - name: Shellcheck the installer and package scripts
         run: shellcheck install.sh packaging/*.sh
@@ -157,11 +159,15 @@ jobs:
           ls -1 dist/*.tar.gz dist/*.zip dist/*.deb dist/*.rpm dist/*.apk
           test -f dist/SHA256SUMS
           # The installer downloads exactly these names.
-          ls dist/ | grep -qE 'godrop_.*_linux_amd64\.tar\.gz'
-          ls dist/ | grep -qE 'godrop_.*_darwin_arm64\.tar\.gz'
-          ls dist/ | grep -qE 'godrop_.*_windows_amd64\.zip'
-          dpkg -c dist/*_linux_amd64.deb | grep -q '/usr/bin/godrop'
-          dpkg -c dist/*_linux_amd64.deb | grep -q 'godrop.service'
+          built=$(ls dist/)
+          grep -qE 'godrop_.*_linux_amd64\.tar\.gz' <<<"$built"
+          grep -qE 'godrop_.*_darwin_arm64\.tar\.gz' <<<"$built"
+          grep -qE 'godrop_.*_windows_amd64\.zip' <<<"$built"
+          # Listed into a variable first: `dpkg -c | grep -q` makes grep exit
+          # early, and the resulting SIGPIPE fails the pipeline under pipefail.
+          deb=$(dpkg -c dist/*_linux_amd64.deb)
+          grep -q '/usr/bin/godrop' <<<"$deb"
+          grep -q 'godrop.service' <<<"$deb"
 
   docker:
     name: Docker

@@ -386,7 +386,7 @@ func NextStepsFor(goos string, a Answers) []string {
 // needs one. Cloud firewalls are named explicitly because they are invisible
 // from inside the machine and are the most common reason a fresh install is
 // unreachable.
-func FirewallSteps(a Answers, publicPort int) []string {
+func FirewallSteps(_ Answers, publicPort int) []string {
 	if publicPort <= 0 {
 		return nil
 	}

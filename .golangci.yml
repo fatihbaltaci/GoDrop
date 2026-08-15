@@ -18,6 +18,11 @@ linters:
         # never from client input; see internal/storage.Store.Path.
         - G304
   exclusions:
+    presets:
+      # Idiomatic Go that errcheck flags anyway: `defer x.Close()`, printing to
+      # an already-failing stderr, os.Remove on a temporary file. Checking those
+      # returns adds noise without adding safety.
+      - std-error-handling
     rules:
       - path: _test\.go
         linters: [gosec, errcheck]

@@ -11,5 +11,7 @@ func statfs(path string) (free, total int64, ok bool) {
 		return 0, 0, false
 	}
 	bsize := int64(st.Bsize)
-	return int64(st.Bavail) * bsize, int64(st.Blocks) * bsize, true
+	// Block counts come from the kernel and describe a real filesystem, so they
+	// are nowhere near the range where this conversion could overflow.
+	return int64(st.Bavail) * bsize, int64(st.Blocks) * bsize, true //nolint:gosec // G115
 }

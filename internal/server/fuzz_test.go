@@ -34,10 +34,12 @@ func FuzzSanitizeExt(f *testing.F) {
 			t.Fatalf("SanitizeExt(%q) = %q, which contains a path character", name, ext)
 		}
 		// The decisive property: joining it with a valid identifier can never
-		// leave the data directory.
+		// leave the data directory. The root is built with the platform's own
+		// separator, because that is what the storage layer joins with.
 		const id = "20260815-143022-8f4e2c91b7934b38a72d1c0e5b6a4f3d"
-		joined := filepath.Join("/data", "2026", "08", "15", storage.JoinName(id, ext))
-		if !strings.HasPrefix(filepath.Clean(joined), "/data/") {
+		root := string(filepath.Separator) + "data"
+		joined := filepath.Join(root, "2026", "08", "15", storage.JoinName(id, ext))
+		if !strings.HasPrefix(filepath.Clean(joined), root+string(filepath.Separator)) {
 			t.Fatalf("SanitizeExt(%q) produced a path escape: %q", name, joined)
 		}
 	})

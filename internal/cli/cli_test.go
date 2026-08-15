@@ -153,8 +153,7 @@ func TestTokenListWithNothingConfigured(t *testing.T) {
 func TestTokenListJSONIncludesEnvironmentCount(t *testing.T) {
 	t.Setenv("GODROP_TOKENS", "env-one,env-two")
 	dir := t.TempDir()
-	if _, _, _ = run(t, testBuild(), "token", "create", "--name", "file-one", "--data-dir", dir); true {
-	}
+	run(t, testBuild(), "token", "create", "--name", "file-one", "--data-dir", dir)
 	code, out, _ := run(t, testBuild(), "token", "list", "--data-dir", dir, "--json")
 	if code != 0 {
 		t.Fatalf("exit = %d", code)

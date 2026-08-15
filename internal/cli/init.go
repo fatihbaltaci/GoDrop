@@ -97,9 +97,7 @@ are skipped automatically when there is no terminal.`,
 
 			if out.json {
 				names := make([]string, 0, len(written))
-				for _, w := range written {
-					names = append(names, w)
-				}
+				names = append(names, written...)
 				return out.emit(map[string]any{
 					"token":      plain,
 					"token_name": answers.TokenName,
