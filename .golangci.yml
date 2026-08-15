@@ -1,0 +1,23 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - bodyclose
+    - gosec
+    - misspell
+    - revive
+  settings:
+    gosec:
+      excludes:
+        # The download handler serves paths built from validated identifiers,
+        # never from client input; see internal/storage.Store.Path.
+        - G304
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [gosec, errcheck]

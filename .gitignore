@@ -1,0 +1,18 @@
+# Build output
+/bin/
+/dist/
+godrop
+
+# Local state
+/data/
+.env
+*.local
+
+# Coverage
+coverage.out
+coverage.html
+
+# Editors and platforms
+.DS_Store
+.idea/
+.vscode/
