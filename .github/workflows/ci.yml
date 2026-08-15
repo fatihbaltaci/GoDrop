@@ -135,6 +135,13 @@ jobs:
       - name: Shellcheck the installer and package scripts
         run: shellcheck install.sh packaging/*.sh scripts/*.sh
 
+      # The release workflow only ever runs on a tag, so this is the one thing
+      # standing between a typo in it and a failed release.
+      - name: Check the workflows
+        uses: docker://rhysd/actionlint:latest
+        with:
+          args: -color
+
   release-config:
     name: Release config
     runs-on: ubuntu-latest
