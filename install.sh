@@ -147,7 +147,9 @@ main() {
 	if [ -t 0 ]; then
 		printf '\n'
 		exec "$BIN_DIR/godrop" init
-	elif [ -r /dev/tty ]; then
+	elif (exec 3< /dev/tty) 2>/dev/null; then
+		# -r is not enough: in a container, a CI job or cloud-init the device
+		# node exists but has no terminal behind it, and opening it fails.
 		printf '\n'
 		exec "$BIN_DIR/godrop" init < /dev/tty
 	else
