@@ -80,6 +80,8 @@ no command of its own.`,
 		newDoctorCmd(build),
 		newTokenCmd(build),
 		newTelemetryCmd(build),
+		newSkillCmd(build),
+		newUpdateCmd(build),
 		newHealthCmd(),
 		newVersionCmd(build),
 	)
