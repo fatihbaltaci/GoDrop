@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -239,6 +240,10 @@ services:
 }
 
 // SystemdUnit renders a hardened service unit.
+//
+// Every path in it is joined with "/" rather than the local separator: a unit
+// file is always read by Linux, even when it was generated on a Windows
+// machine for a server somewhere else.
 func SystemdUnit(a Answers, binaryPath string) string {
 	if binaryPath == "" {
 		binaryPath = "/usr/local/bin/godrop"
@@ -275,7 +280,7 @@ ReadWritePaths=%s
 
 [Install]
 WantedBy=multi-user.target
-`, filepath.Join(a.DataDir, "godrop.env"), binaryPath, a.DataDir)
+`, path.Join(a.DataDir, "godrop.env"), binaryPath, a.DataDir)
 }
 
 // Caddyfile renders a reverse proxy with automatic TLS, including the body size
