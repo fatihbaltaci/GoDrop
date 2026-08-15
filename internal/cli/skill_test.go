@@ -19,7 +19,7 @@ func TestTheEmbeddedSkillMatchesTheOneInTheRepository(t *testing.T) {
 	if normalise(string(published)) != normalise(skillDoc) {
 		t.Error("the embedded skill and skills/godrop/SKILL.md have drifted apart.\nRun: make docs")
 	}
-	if !strings.HasPrefix(skillDoc, "---\nname: godrop") {
+	if !strings.HasPrefix(normalise(skillDoc), "---\nname: godrop") {
 		t.Error("a skill needs frontmatter naming it, or no agent will find it")
 	}
 }

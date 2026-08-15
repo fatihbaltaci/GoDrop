@@ -1,0 +1,10 @@
+# Everything is stored and checked out with LF endings, on every platform.
+#
+# Without this, a Windows checkout rewrites text files to CRLF, and a binary
+# built there embeds a different skill file than one built anywhere else. The
+# shell scripts would not run at all.
+* text=auto eol=lf
+
+# Files that must never be rewritten.
+*.png binary
+*.jpg binary
