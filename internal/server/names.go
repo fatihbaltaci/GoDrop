@@ -138,3 +138,42 @@ func ContentType(ext string, head []byte) string {
 // IsDangerousExt reports whether content with this extension must never be
 // rendered inline in our origin.
 func IsDangerousExt(ext string) bool { return dangerousExts[ext] }
+
+// A download URL is a capability: whoever knows it can fetch the file, and
+// nothing else is asked for. Logs travel further than the files they describe
+// — into shipping pipelines, support tickets, screenshots — so the random half
+// of an identifier is cut short before it is written to one.
+//
+// What is kept is still enough to work with. It identifies the upload uniquely
+// among everything stored in that second, so a request line can be matched to
+// the upload that created it and the file can be found on disk:
+//
+//	ls data/2026/08/15/20260815-143022-8f4e2c91*
+//
+// What is dropped is the 96 bits that make the rest of the identifier
+// unguessable, which is exactly what a reader of the log must not learn.
+const idLogPrefix = len("20260815-143022-") + 8
+
+// ShortID abbreviates an identifier for logging.
+func ShortID(id string) string {
+	if !storage.ValidID(id) {
+		return id
+	}
+	return id[:idLogPrefix] + "..."
+}
+
+// LogPath abbreviates the identifier inside a request path for logging.
+func LogPath(path string) string {
+	rest, ok := strings.CutPrefix(path, "/f/")
+	if !ok {
+		return path
+	}
+	id, tail := rest, ""
+	if i := strings.IndexAny(rest, "./"); i >= 0 {
+		id, tail = rest[:i], rest[i:]
+	}
+	if !storage.ValidID(id) {
+		return path
+	}
+	return "/f/" + ShortID(id) + tail
+}

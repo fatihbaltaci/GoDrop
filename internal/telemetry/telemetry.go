@@ -46,6 +46,7 @@ type Client struct {
 	version   string
 	installID string
 	deploy    string
+	dataDir   string
 
 	http *http.Client
 	log  *slog.Logger
@@ -103,6 +104,7 @@ func New(opts Options) (*Client, error) {
 		version:   opts.Version,
 		installID: id,
 		deploy:    DetectDeploy(env),
+		dataDir:   opts.DataDir,
 		http:      httpClient,
 		log:       log,
 		now:       now,
@@ -155,9 +157,15 @@ func (c *Client) Run(ctx context.Context) {
 	}
 }
 
-// Send delivers a single heartbeat.
+// Send delivers a single heartbeat, unless telemetry has been switched off in
+// the meantime.
+//
+// The opt-out marker is read on every send rather than once at startup:
+// `godrop telemetry off` promises that nothing more will be sent, not that
+// nothing more will be sent after the next restart. Reading it back also means
+// switching telemetry on again takes effect without one.
 func (c *Client) Send(ctx context.Context) error {
-	if c == nil {
+	if c == nil || Disabled(c.dataDir) {
 		return nil
 	}
 	// The payload is a fixed shape of strings, so encoding it cannot fail.

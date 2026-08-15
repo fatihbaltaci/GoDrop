@@ -28,14 +28,25 @@ func newDoctorCmd(build Build) *cobra.Command {
 available updates, then prints the exact command that fixes each problem.
 
 Run it on the server for the full picture, or point it at a remote instance
-with --url and --token. Exits non-zero when a check fails, so it works as a
-deployment gate.`,
+with --url. Exits non-zero when a check fails, so it works as a deployment
+gate.
+
+The token for a remote check is read from GODROP_TOKEN, so that it stays out
+of the process list and the shell history:
+
+  GODROP_TOKEN=gd_... godrop doctor --url https://files.example.com`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithTimeout(cmd.Context(), 90*time.Second)
 			defer cancel()
 
 			cfg, cfgErr := config.Load()
+			// A token on the command line ends up in the process list and in
+			// shell history, where anyone with a local account can read it, so
+			// the environment is the documented way to pass one.
+			if token == "" {
+				token = os.Getenv("GODROP_TOKEN")
+			}
 			opts := doctor.Options{
 				Config:    cfg,
 				ConfigErr: cfgErr,
@@ -74,7 +85,8 @@ deployment gate.`,
 	}
 	cmd.Flags().BoolVar(&offline, "offline", false, "skip every check that needs the network")
 	cmd.Flags().StringVar(&url, "url", "", "diagnose a remote instance at this base URL")
-	cmd.Flags().StringVar(&token, "token", "", "API token to use for the round-trip check")
+	cmd.Flags().StringVar(&token, "token", "",
+		"API token for the round-trip check; prefer GODROP_TOKEN, which does not appear in the process list")
 	cmd.Flags().StringVar(&checkURL, "check-url", "", "reachability service (default https://godrop.sh/api/check)")
 	return cmd
 }

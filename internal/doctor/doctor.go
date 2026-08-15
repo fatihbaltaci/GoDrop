@@ -514,6 +514,16 @@ func (r *runner) checkEndToEnd(ctx context.Context) {
 		r.add(g, "upload", Fail, "unexpected response body: "+strings.TrimSpace(string(data)), "")
 		return
 	}
+	// The URL to fetch and then delete comes from the server being diagnosed,
+	// and the delete carries the API token. A server that answered with an
+	// address somewhere else would turn this check into a way to reach into
+	// the operator's network and hand the token to a third party.
+	if !sameOrigin(target, uploaded.URL) {
+		r.add(g, "upload", Fail,
+			fmt.Sprintf("the server answered with a URL somewhere else entirely: %s", uploaded.URL),
+			"check GODROP_BASE_URL on the server, and whether anything is rewriting responses in between")
+		return
+	}
 	r.add(g, "upload", Pass, "201 created", "")
 
 	downloaded, status, err := r.get(ctx, uploaded.URL)
@@ -544,6 +554,31 @@ func (r *runner) checkEndToEnd(ctx context.Context) {
 			r.add(g, "delete", Fail, err.Error(), "")
 		}
 	}
+}
+
+// sameOrigin reports whether returned points at the same scheme, host and port
+// as base. Anything the diagnosed server hands back is followed and, for the
+// delete, followed with the API token attached, so it must not be able to send
+// that anywhere but itself.
+func sameOrigin(base, returned string) bool {
+	a, aOK := origin(base)
+	b, bOK := origin(returned)
+	return aOK && bOK && a == b
+}
+
+// origin normalises a URL down to scheme, host and port, with the port left
+// out when it is the default for the scheme, so that https://example.com and
+// https://example.com:443 compare equal.
+func origin(raw string) (string, bool) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "", false
+	}
+	scheme, host, port := strings.ToLower(u.Scheme), strings.ToLower(u.Hostname()), u.Port()
+	if port == "" || (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
+		return scheme + "://" + host, true
+	}
+	return scheme + "://" + host + ":" + port, true
 }
 
 func (r *runner) get(ctx context.Context, rawURL string) ([]byte, int, error) {

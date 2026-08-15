@@ -445,6 +445,27 @@ func TestDoctorAgainstARemoteInstance(t *testing.T) {
 	}
 }
 
+func TestDoctorTakesTheTokenFromTheEnvironment(t *testing.T) {
+	// A token passed as a flag is visible in the process list to every local
+	// account and lands in the shell history, so the environment is the
+	// documented way to hand one over.
+	var seen string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"error":"nope"}`)
+	}))
+	defer srv.Close()
+	t.Setenv("GODROP_DATA_DIR", t.TempDir())
+	t.Setenv("GODROP_TOKENS", "gd_a1b2c3d4e5f60718293a4b5c6d7e8f90")
+	t.Setenv("GODROP_TOKEN", "gd_from_the_environment")
+
+	run(t, testBuild(), "doctor", "--offline", "--url", srv.URL)
+	if seen != "Bearer gd_from_the_environment" {
+		t.Errorf("Authorization = %q, want the token from GODROP_TOKEN", seen)
+	}
+}
+
 func TestDoctorMintsATemporaryToken(t *testing.T) {
 	// Without GODROP_TOKENS the doctor creates a throwaway token so the round
 	// trip can run, then removes it again.

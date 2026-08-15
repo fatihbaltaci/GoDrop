@@ -247,3 +247,36 @@ func TestLogMiddlewareRecordsUnwrittenResponses(t *testing.T) {
 		t.Errorf("log = %s, want a 200 status", logs.String())
 	}
 }
+
+func TestLogsNeverCarryAWholeDownloadURL(t *testing.T) {
+	// The identifier is the only secret protecting a download, so a log reader
+	// must not be able to reconstruct one — while still being able to match a
+	// line to its upload and find the file on disk.
+	const id = "20260815-143022-8f4e2c91b7934b38a72d1c0e5b6a4f3d"
+	const kept = "20260815-143022-8f4e2c91"
+
+	if got := ShortID(id); got != kept+"..." {
+		t.Errorf("ShortID = %q, want %q", got, kept+"...")
+	}
+	if got := ShortID("not-an-id"); got != "not-an-id" {
+		t.Errorf("ShortID(%q) = %q, want it left alone", "not-an-id", got)
+	}
+
+	for path, want := range map[string]string{
+		"/f/" + id + ".jpg":         "/f/" + kept + "....jpg",
+		"/f/" + id + "/holiday.jpg": "/f/" + kept + ".../holiday.jpg",
+		"/f/" + id:                  "/f/" + kept + "...",
+		"/f/not-an-id.jpg":          "/f/not-an-id.jpg",
+		"/upload":                   "/upload",
+		"/healthz":                  "/healthz",
+	} {
+		if got := LogPath(path); got != want {
+			t.Errorf("LogPath(%q) = %q, want %q", path, got, want)
+		}
+	}
+
+	// The decisive property: what is left is not enough to fetch the file.
+	if strings.Contains(LogPath("/f/"+id+".jpg"), id) {
+		t.Error("the whole identifier is still in the log line")
+	}
+}

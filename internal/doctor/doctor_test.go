@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -480,6 +481,68 @@ func mustStore(t *testing.T, cfg *config.Config) *storage.Store {
 		t.Fatal(err)
 	}
 	return st
+}
+
+func TestEndToEndRefusesAURLPointingSomewhereElse(t *testing.T) {
+	// The round trip fetches, and then deletes with the API token attached,
+	// whatever URL the server hands back. A server that answered with an
+	// address elsewhere would get the token sent there — and a request made
+	// from inside the operator's network.
+	var elsewhere atomic.Int64
+	victim := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		elsewhere.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer victim.Close()
+
+	hostile := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]string{"url": victim.URL + "/f/anything.txt"})
+	}))
+	defer hostile.Close()
+
+	report := Run(context.Background(), Options{
+		TargetURL: hostile.URL, Token: testToken, Offline: true,
+		Runner: noFirewall, HTTP: hostile.Client(),
+	})
+
+	c := find(t, report, "upload")
+	if c.Status != Fail || !strings.Contains(c.Detail, "somewhere else") {
+		t.Errorf("upload = %+v, want the mismatched URL refused", c)
+	}
+	if has(report, "delete") {
+		t.Error("nothing should have been deleted at another address")
+	}
+	if elsewhere.Load() != 0 {
+		t.Errorf("the other server was contacted %d time(s)", elsewhere.Load())
+	}
+}
+
+func TestSameOriginComparesSchemeHostAndPort(t *testing.T) {
+	same := [][2]string{
+		{"https://files.example.com", "https://files.example.com/f/x.txt"},
+		{"https://files.example.com", "https://files.example.com:443/f/x.txt"},
+		{"http://files.example.com:80", "http://FILES.example.com/f/x.txt"},
+		{"http://127.0.0.1:8080", "http://127.0.0.1:8080/f/x.txt"},
+	}
+	for _, tc := range same {
+		if !sameOrigin(tc[0], tc[1]) {
+			t.Errorf("sameOrigin(%q, %q) = false, want true", tc[0], tc[1])
+		}
+	}
+	different := [][2]string{
+		{"https://files.example.com", "https://attacker.example.com/f/x.txt"},
+		{"https://files.example.com", "http://files.example.com/f/x.txt"},
+		{"http://127.0.0.1:8080", "http://127.0.0.1:9090/f/x.txt"},
+		{"https://files.example.com", "/f/x.txt"},
+		{"https://files.example.com", "://"},
+		{"://", "https://files.example.com"},
+	}
+	for _, tc := range different {
+		if sameOrigin(tc[0], tc[1]) {
+			t.Errorf("sameOrigin(%q, %q) = true, want false", tc[0], tc[1])
+		}
+	}
 }
 
 func TestEndToEndDetectsABadToken(t *testing.T) {
@@ -1067,8 +1130,20 @@ func TestEndToEndReportsAnUnusableUploadURL(t *testing.T) {
 	report := Run(context.Background(), Options{
 		TargetURL: srv.URL, Token: testToken, Offline: true, Runner: noFirewall,
 	})
-	if c := find(t, report, "download"); c.Status != Fail {
-		t.Errorf("download = %+v, want a failure for an unusable URL", c)
+	if c := find(t, report, "upload"); c.Status != Fail {
+		t.Errorf("upload = %+v, want a failure for an unusable URL", c)
+	}
+	if has(report, "download") {
+		t.Error("a URL that cannot even be parsed must not be fetched")
+	}
+}
+
+func TestGetRefusesAURLItCannotTurnIntoARequest(t *testing.T) {
+	// The round trip screens the URL before it gets here, but this is the
+	// function that actually makes the request, so it validates its own input.
+	r := &runner{http: http.DefaultClient}
+	if _, _, err := r.get(context.Background(), "://not-a-url"); err == nil {
+		t.Error("an unusable URL should be reported rather than requested")
 	}
 }
 

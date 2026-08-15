@@ -141,7 +141,7 @@ func (s *Server) logMiddleware(next http.Handler) http.Handler {
 		}
 		s.log.Info("request",
 			"method", r.Method,
-			"path", r.URL.Path,
+			"path", LogPath(r.URL.Path),
 			"status", sw.status,
 			"bytes", sw.bytes,
 			"ip", clientIP(r),
@@ -154,7 +154,7 @@ func (s *Server) recoverMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
-				s.log.Error("panic", "path", r.URL.Path, "panic", fmt.Sprint(rec))
+				s.log.Error("panic", "path", LogPath(r.URL.Path), "panic", fmt.Sprint(rec))
 				writeError(w, http.StatusInternalServerError, "internal error")
 			}
 		}()
@@ -204,12 +204,12 @@ func (s *Server) protect(next func(http.ResponseWriter, *http.Request, string)) 
 		if !ok {
 			ip := clientIP(r)
 			if allowed, retry := s.authLimiter.allow(ip); !allowed {
-				s.log.Warn("auth rate limited", "ip", ip, "path", r.URL.Path)
+				s.log.Warn("auth rate limited", "ip", ip, "path", LogPath(r.URL.Path))
 				retryAfter(w, retry)
 				writeError(w, http.StatusTooManyRequests, "too many failed authentication attempts")
 				return
 			}
-			s.log.Warn("auth failed", "ip", ip, "path", r.URL.Path, "has_credentials", presented != "")
+			s.log.Warn("auth failed", "ip", ip, "path", LogPath(r.URL.Path), "has_credentials", presented != "")
 			w.Header().Set("WWW-Authenticate", `Bearer realm="godrop"`)
 			writeError(w, http.StatusUnauthorized, "missing or invalid token")
 			return
@@ -329,7 +329,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request, token stri
 	rollback := func() {
 		for _, f := range created {
 			if err := s.store.Delete(f.ID, f.Ext); err != nil {
-				s.log.Error("rollback failed", "id", f.ID, "err", err.Error())
+				s.log.Error("rollback failed", "id", ShortID(f.ID), "err", err.Error())
 			}
 		}
 	}
@@ -379,7 +379,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request, token stri
 		return
 	}
 	for _, f := range created {
-		s.log.Info("upload", "id", f.ID, "size", f.Size, "token", token, "ip", clientIP(r))
+		s.log.Info("upload", "id", ShortID(f.ID), "size", f.Size, "token", token, "ip", clientIP(r))
 	}
 	writeJSON(w, http.StatusCreated, uploadResponse{URL: infos[0].URL, Files: infos})
 }
@@ -392,7 +392,7 @@ func (s *Server) handlePutUpload(w http.ResponseWriter, r *http.Request, token s
 		s.writeUploadError(w, err)
 		return
 	}
-	s.log.Info("upload", "id", file.ID, "size", file.Size, "token", token, "ip", clientIP(r))
+	s.log.Info("upload", "id", ShortID(file.ID), "size", file.Size, "token", token, "ip", clientIP(r))
 	writeJSON(w, http.StatusCreated, uploadResponse{URL: info.URL, Files: []fileInfo{info}})
 }
 
@@ -470,7 +470,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request, token stri
 	}
 	switch err := s.store.Delete(id, ext); {
 	case err == nil:
-		s.log.Info("delete", "id", storage.JoinName(id, ext), "token", token, "ip", clientIP(r))
+		s.log.Info("delete", "id", ShortID(id), "token", token, "ip", clientIP(r))
 		w.WriteHeader(http.StatusNoContent)
 	case errors.Is(err, storage.ErrNotFound), errors.Is(err, storage.ErrInvalidID):
 		writeError(w, http.StatusNotFound, "not found")

@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -154,6 +155,51 @@ func TestSendRejectsAnInvalidHost(t *testing.T) {
 	}
 	if err := c.Send(context.Background()); err == nil {
 		t.Fatal("an unusable host should be reported")
+	}
+}
+
+func TestOptingOutStopsAServerThatIsAlreadyRunning(t *testing.T) {
+	// `godrop telemetry off` promises that nothing more will be sent. Checking
+	// the marker only at startup would keep the daily heartbeat going until the
+	// next restart.
+	var hits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	c, err := New(Options{Key: "phc_test", Host: srv.URL, DataDir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Send(context.Background()); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("hits = %d, want the first heartbeat to go out", hits.Load())
+	}
+
+	if err := SetDisabled(dir, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Send(context.Background()); err != nil {
+		t.Fatalf("Send after opting out: %v", err)
+	}
+	if hits.Load() != 1 {
+		t.Errorf("hits = %d, want nothing sent after the opt-out", hits.Load())
+	}
+
+	// And switching it back on works without a restart too.
+	if err := SetDisabled(dir, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Send(context.Background()); err != nil {
+		t.Fatalf("Send after opting back in: %v", err)
+	}
+	if hits.Load() != 2 {
+		t.Errorf("hits = %d, want the heartbeat to resume", hits.Load())
 	}
 }
 
