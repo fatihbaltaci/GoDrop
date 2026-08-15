@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -35,7 +36,7 @@ func runServe(cmd *cobra.Command, build Build) error {
 		return fmt.Errorf("invalid configuration:\n%w", err)
 	}
 
-	logger := newLogger(cfg)
+	logger := newLogger(cfg, cmd.OutOrStdout())
 
 	store, err := storage.New(cfg.DataDir, cfg.MaxTotalSize)
 	if err != nil {
@@ -45,6 +46,12 @@ func runServe(cmd *cobra.Command, build Build) error {
 	if err != nil {
 		return err
 	}
+	// Reloading the token file fails open so a transient problem cannot lock
+	// every client out, which makes saying so out loud the only warning the
+	// operator gets: until it is fixed, a revoked token stays valid.
+	tokenStore.SetErrorHandler(func(err error) {
+		logger.Error("token file could not be reloaded; still using the last good copy", "err", err.Error())
+	})
 	if tokenStore.Count() == 0 {
 		return errors.New(`no API tokens configured — refusing to start with unauthenticated uploads.
 
@@ -121,12 +128,14 @@ func runServe(cmd *cobra.Command, build Build) error {
 	return httpSrv.Shutdown(shutdownCtx)
 }
 
-func newLogger(cfg *config.Config) *slog.Logger {
+// newLogger writes to the command's output, which is os.Stdout in production
+// and something a test can read in the suite.
+func newLogger(cfg *config.Config, w io.Writer) *slog.Logger {
 	opts := &slog.HandlerOptions{Level: cfg.LogLevel}
 	if cfg.LogFormat == "text" {
-		return slog.New(slog.NewTextHandler(os.Stdout, opts))
+		return slog.New(slog.NewTextHandler(w, opts))
 	}
-	return slog.New(slog.NewJSONHandler(os.Stdout, opts))
+	return slog.New(slog.NewJSONHandler(w, opts))
 }
 
 func logStartup(logger *slog.Logger, cfg *config.Config, store *storage.Store, ts *tokens.Store, build Build) {

@@ -420,24 +420,49 @@ func TestWriteFileAtomicReportsRenameFailures(t *testing.T) {
 	if err := os.Mkdir(target, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeFileAtomic(target, []byte("data"), 0o600); err == nil {
+	if err := writeFileAtomic(target, []byte("data")); err == nil {
 		t.Fatal("expected the rename to fail")
 	}
-	if _, err := os.Stat(target + ".tmp"); !os.IsNotExist(err) {
-		t.Error("the temporary file should be cleaned up after a failed rename")
+	if left := tempLeftovers(t, dir); len(left) > 0 {
+		t.Errorf("temporary files left behind after a failed rename: %v", left)
 	}
 }
 
 func TestWriteFileAtomicReportsWriteFailures(t *testing.T) {
+	dir := t.TempDir()
+	original := writeAll
+	writeAll = func(*os.File, []byte) error { return errors.New("disk full") }
+	t.Cleanup(func() { writeAll = original })
+
+	if err := writeFileAtomic(filepath.Join(dir, "target"), []byte("data")); err == nil {
+		t.Fatal("a failed write should be reported")
+	}
+	if left := tempLeftovers(t, dir); len(left) > 0 {
+		t.Errorf("temporary files left behind after a failed write: %v", left)
+	}
+}
+
+func TestWriteFileAtomicReportsAnUnusableDirectory(t *testing.T) {
 	requireStrictPermissions(t)
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0o500); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
-	if err := writeFileAtomic(filepath.Join(dir, "target"), []byte("data"), 0o600); err == nil {
+	if err := writeFileAtomic(filepath.Join(dir, "target"), []byte("data")); err == nil {
 		t.Fatal("an unwritable directory should be reported")
 	}
+}
+
+// tempLeftovers lists the temporary files still sitting in dir. A unique name
+// is only safe if it is always cleaned up.
+func tempLeftovers(t *testing.T, dir string) []string {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(dir, "*.tmp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return matches
 }
 
 // corruptFileAfterLoad writes invalid JSON and moves the clock past the reload

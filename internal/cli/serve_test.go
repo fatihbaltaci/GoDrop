@@ -150,16 +150,7 @@ func serveInBackground(t *testing.T, token string, env map[string]string) (strin
 		done <- ExecuteWith(ctx, testBuild(), []string{"serve"}, io.Discard, io.Discard)
 	}()
 
-	// Wait for the listener rather than sleeping a fixed amount.
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		conn, err := net.DialTimeout("tcp", addr, 200*time.Millisecond)
-		if err == nil {
-			_ = conn.Close()
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitForListener(t, addr)
 
 	return "http://" + addr, func() {
 		cancel()
@@ -172,6 +163,54 @@ func serveInBackground(t *testing.T, token string, env map[string]string) (strin
 			t.Error("serve did not shut down when its context was cancelled")
 		}
 	}
+}
+
+func TestServeReportsATokenFileItCanNoLongerRead(t *testing.T) {
+	// Reloading fails open, so a broken token file leaves the server running
+	// with the last good copy — and a revoked token still valid. The operator
+	// only finds out if it says so.
+	const token = "gd_a1b2c3d4e5f60718293a4b5c6d7e8f90"
+	addr := freePort(t)
+	dir := t.TempDir()
+	t.Setenv("GODROP_DATA_DIR", dir)
+	t.Setenv("GODROP_TOKENS", token)
+	t.Setenv("GODROP_ADDR", addr)
+	t.Setenv("GODROP_LOG_FORMAT", "text")
+
+	logs := &safeBuffer{}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan int, 1)
+	go func() { done <- ExecuteWith(ctx, testBuild(), []string{"serve"}, logs, io.Discard) }()
+	waitForListener(t, addr)
+	defer func() {
+		cancel()
+		<-done
+	}()
+
+	if err := os.WriteFile(tokens.Path(dir), []byte("{{{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Authentication only re-reads the file once the reload throttle expires.
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		req, err := http.NewRequest(http.MethodGet, "http://"+addr+"/stats", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("the environment token should still work, got %d", resp.StatusCode)
+			}
+		}
+		if strings.Contains(logs.String(), "token file could not be reloaded") {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Errorf("the broken token file was never reported:\n%s", logs.String())
 }
 
 func TestServeServesAndShutsDownCleanly(t *testing.T) {
@@ -412,10 +451,10 @@ func TestFlushTokensStopsWithTheContext(t *testing.T) {
 }
 
 func TestLoggerFormats(t *testing.T) {
-	if newLogger(&config.Config{LogFormat: "text"}) == nil {
+	if newLogger(&config.Config{LogFormat: "text"}, io.Discard) == nil {
 		t.Error("a text logger should be created")
 	}
-	if newLogger(&config.Config{LogFormat: "json"}) == nil {
+	if newLogger(&config.Config{LogFormat: "json"}, io.Discard) == nil {
 		t.Error("a JSON logger should be created")
 	}
 }

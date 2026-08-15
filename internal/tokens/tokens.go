@@ -45,6 +45,16 @@ var (
 // on every upload, and a stat per request would be wasteful.
 const reloadInterval = time.Second
 
+// Lock retry policy. Holders keep the lock only for as long as it takes to
+// read a small file, rewrite it and rename it into place, so a short spin is
+// enough; a lock nobody has touched for lockStaleAfter belonged to a process
+// that died and is taken over.
+const (
+	lockRetryInterval = 20 * time.Millisecond
+	lockAttempts      = 100
+	lockStaleAfter    = 30 * time.Second
+)
+
 // Token is a stored token record. The token itself is not part of it.
 type Token struct {
 	Name     string     `json:"name"`
@@ -71,8 +81,11 @@ type Store struct {
 	size     int64
 	checked  time.Time
 	dirty    bool
+	lastErr  string
+	onError  func(error)
 	now      func() time.Time
 	randRead func([]byte) (int, error)
+	sleep    func(time.Duration)
 }
 
 type envToken struct {
@@ -87,6 +100,7 @@ func New(path string, envTokens []string) (*Store, error) {
 		path:     path,
 		now:      func() time.Time { return time.Now().UTC() },
 		randRead: rand.Read,
+		sleep:    time.Sleep,
 	}
 	for i, t := range envTokens {
 		s.env = append(s.env, envToken{name: fmt.Sprintf("env-%d", i+1), sum: sha256.Sum256([]byte(t))})
@@ -151,6 +165,12 @@ func (s *Store) Create(name string) (string, Token, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	unlock, err := s.lockFile()
+	if err != nil {
+		return "", Token{}, err
+	}
+	defer unlock()
+
 	if err := s.reloadLocked(); err != nil {
 		return "", Token{}, err
 	}
@@ -204,6 +224,11 @@ func (s *Store) EnvCount() int {
 func (s *Store) Revoke(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.lockFile()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	if err := s.reloadLocked(); err != nil {
 		return err
 	}
@@ -237,6 +262,12 @@ func (s *Store) Flush() error {
 		}
 	}
 
+	unlock, err := s.lockFile()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
 	s.size = -1 // force a re-read even within the throttle window
 	if err := s.reloadLocked(); err != nil {
 		return err
@@ -259,6 +290,41 @@ func (s *Store) Flush() error {
 		return nil
 	}
 	return s.saveLocked()
+}
+
+// lockFile takes an exclusive lock on the token file and returns the function
+// that releases it.
+//
+// The running server and `godrop token` are separate processes with separate
+// views of the same file. Without a lock one can read it, be overtaken by the
+// other's write, and then rename its own stale copy into place — silently
+// undoing a revocation that was reported as successful. Callers already hold
+// the in-process mutex, so only one goroutine per process ever waits here.
+func (s *Store) lockFile() (func(), error) {
+	lock := s.path + ".lock"
+	if err := os.MkdirAll(filepath.Dir(lock), 0o700); err != nil {
+		return nil, fmt.Errorf("create token dir: %w", err)
+	}
+	for range lockAttempts {
+		f, err := os.OpenFile(lock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			_ = f.Close()
+			return func() { _ = os.Remove(lock) }, nil
+		}
+		if !errors.Is(err, fs.ErrExist) {
+			return nil, fmt.Errorf("lock token file: %w", err)
+		}
+		// A process killed mid-write would otherwise block every future token
+		// operation, so a lock nobody has touched is taken over. The clock here
+		// is the filesystem's, not the store's: it is compared against a real
+		// modification time.
+		if info, statErr := os.Stat(lock); statErr == nil && time.Since(info.ModTime()) > lockStaleAfter {
+			_ = os.Remove(lock)
+			continue
+		}
+		s.sleep(lockRetryInterval)
+	}
+	return nil, fmt.Errorf("token file is locked by another process: %s", lock)
 }
 
 // ValidName reports whether a token name is acceptable. Names are labels shown
@@ -306,7 +372,32 @@ func (s *Store) maybeReload() {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_ = s.reloadLocked()
+	if err := s.reloadLocked(); err != nil {
+		s.reportLocked(err)
+	}
+}
+
+// SetErrorHandler installs a callback for token file problems noticed while
+// the server is running. Reloading deliberately fails open — an unreadable
+// file must not lock every client out of a working service — but it must not
+// be silent either, because until it is fixed a revoked token stays valid.
+func (s *Store) SetErrorHandler(fn func(error)) {
+	s.mu.Lock()
+	s.onError = fn
+	s.mu.Unlock()
+}
+
+// reportLocked hands a reload failure to the error handler, but only when it
+// differs from the last one. Verify runs on every request, and a broken file
+// would otherwise repeat the same line until the log filled up.
+func (s *Store) reportLocked(err error) {
+	if err.Error() == s.lastErr {
+		return
+	}
+	s.lastErr = err.Error()
+	if s.onError != nil {
+		s.onError(err)
+	}
 }
 
 func (s *Store) load() error {
@@ -344,22 +435,21 @@ func (s *Store) reloadLocked() error {
 	s.modTime = info.ModTime()
 	s.size = info.Size()
 	s.dirty = false
+	s.lastErr = "" // a later failure is news again
 	return nil
 }
 
 // saveLocked writes the token file atomically with owner-only permissions:
 // write a neighbouring temporary file, then rename it over the target, so a
-// crash mid-write can never leave a half-written token database behind.
+// crash mid-write can never leave a half-written token database behind. Every
+// caller holds the file lock, which has already created the directory.
 func (s *Store) saveLocked() error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
-		return fmt.Errorf("create token dir: %w", err)
-	}
 	// fileFormat holds only strings, times and pointers to them, so encoding it
 	// cannot fail — this error is impossible rather than ignored.
 	data, _ := json.MarshalIndent(fileFormat{Tokens: s.tokens}, "", "  ")
 	data = append(data, '\n')
 
-	if err := writeFileAtomic(s.path, data, 0o600); err != nil {
+	if err := writeFileAtomic(s.path, data); err != nil {
 		return fmt.Errorf("write tokens: %w", err)
 	}
 	if info, err := os.Stat(s.path); err == nil {
@@ -373,9 +463,21 @@ func (s *Store) saveLocked() error {
 // writeFileAtomic writes data to a neighbouring temporary file and renames it
 // into place, so a crash or a full disk can never leave a half-written token
 // database behind.
-func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, perm); err != nil {
+//
+// The temporary name is unique rather than a fixed "<path>.tmp": two processes
+// writing at the same time would otherwise interleave into the same file and
+// rename the mixture into place. os.CreateTemp also opens it 0600, which is
+// what the token file needs.
+func writeFileAtomic(path string, data []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	writeErr := writeAll(f, data)
+	closeErr := f.Close()
+	if err := errors.Join(writeErr, closeErr); err != nil {
+		_ = os.Remove(tmp)
 		return err
 	}
 	if err := os.Rename(tmp, path); err != nil {
@@ -383,6 +485,14 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	return nil
+}
+
+// writeAll is a seam. A write that fails after the temporary file exists but
+// before it is renamed is exactly the case this function is here to survive,
+// and it cannot be provoked from outside on a healthy filesystem.
+var writeAll = func(f *os.File, data []byte) error {
+	_, err := f.Write(data)
+	return err
 }
 
 // Path returns the token file path for a data directory.
