@@ -52,8 +52,31 @@ docker run -d -p 8080:8080 \
   -v godrop-data:/data \
   ghcr.io/fatihbaltaci/godrop
 
+# Debian or Ubuntu — installs the systemd service and creates its user
+sudo dpkg -i godrop_1.0.0_linux_amd64.deb
+
+# Fedora, RHEL or openSUSE
+sudo rpm -i godrop_1.0.0_linux_amd64.rpm
+
 # From source (Go 1.26+). Binaries built this way send no telemetry at all.
 go install github.com/fatihbaltaci/GoDrop/cmd/godrop@latest
+```
+
+### Platforms
+
+| | Server | CLI | Notes |
+| --- | :---: | :---: | --- |
+| **Linux** (amd64, arm64) | ✅ | ✅ | Where it is meant to run: `.deb`, `.rpm`, `.apk`, container image, systemd unit |
+| **macOS** (Intel, Apple silicon) | ✅ | ✅ | Fine for development and small installs; no systemd, so use Docker or start it yourself |
+| **Windows** (amd64, arm64) | ⚠️ | ✅ | The binary works and is tested in CI, but there is no service wrapper, no installer script and no firewall guidance — take the zip from Releases |
+| **FreeBSD** | 🔧 | 🔧 | Compiles and passes tests; no binaries published |
+
+The suite runs on Linux, macOS and Windows for every change, and each release
+artefact carries [signed build
+provenance](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations):
+
+```bash
+gh attestation verify godrop_1.0.0_linux_amd64.tar.gz --repo fatihbaltaci/GoDrop
 ```
 
 ## Guided setup
@@ -94,15 +117,19 @@ $ godrop init
   ✓ external access       reachable (HTTP 200, from FRA)
 ```
 
-Everything it asks can be a flag instead, so CI and agents run the same code
-path without a terminal:
+Every question shows its default and can be answered with a flag instead, so CI
+and agents run the same code path without a terminal. Prompts are skipped
+automatically when there is no TTY; `--no-input` makes that explicit:
 
 ```bash
-godrop init --non-interactive \
+godrop init --no-input \
   --base-url https://files.example.com \
   --data-dir /var/lib/godrop \
   --max-total-size 20GB --json
 ```
+
+The wizard only offers what the host can do: systemd appears on Linux, not on
+macOS or Windows, and the commands it prints use the right shell.
 
 ## The API
 
@@ -266,6 +293,11 @@ docker compose -f deploy/docker-compose.caddy.yml up -d
 **raise its body size limit** to match `GODROP_MAX_FILE_SIZE` — `godrop doctor`
 tests this for you.
 
+The `.deb` and `.rpm` packages do the systemd part for you: they install the
+unit, create an unprivileged `godrop` user, and put the configuration in
+`/etc/godrop/godrop.env` (kept across upgrades) with uploads in
+`/var/lib/godrop`.
+
 ### Fly.io
 
 ```bash
@@ -360,7 +392,13 @@ make cover        # coverage, failing below 100%
 make fuzz         # fuzz the input sanitisers
 make run          # a local server on port 48080
 make docker       # build the image
+make snapshot     # build every release artefact locally, without publishing
 ```
+
+Releases come from [GoReleaser](https://goreleaser.com) via
+[`.goreleaser.yaml`](.goreleaser.yaml) — binaries, archives, checksums, Linux
+packages and the changelog. CI builds the whole set on every change, so a tag
+never fails on something that could have been caught earlier.
 
 Every statement in `internal/` is covered by a test, and CI fails if that ever
 slips. `cmd/godrop` is a three-line shim around `os.Exit` and is excluded.
