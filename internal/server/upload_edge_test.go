@@ -2,9 +2,11 @@ package server
 
 import (
 	"io"
+	"io/fs"
 	"mime/multipart"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -61,6 +63,7 @@ func TestRollbackFailureIsLoggedNotHidden(t *testing.T) {
 	// A file that disappears between being written and being rolled back must
 	// not turn into a silent inconsistency: the operator needs to see it.
 	h := newHarness(t, func(c *config.Config) { c.MaxFileSize = 32 })
+	const stored = "stored"
 
 	pr, pw := io.Pipe()
 	mw := multipart.NewWriter(pw)
@@ -70,7 +73,7 @@ func TestRollbackFailureIsLoggedNotHidden(t *testing.T) {
 			_ = pw.CloseWithError(err)
 			return
 		}
-		if _, err := io.WriteString(first, "stored"); err != nil {
+		if _, err := io.WriteString(first, stored); err != nil {
 			_ = pw.CloseWithError(err)
 			return
 		}
@@ -84,14 +87,14 @@ func TestRollbackFailureIsLoggedNotHidden(t *testing.T) {
 		}
 		// Wait until the first part has landed, then remove it behind the
 		// server's back so the rollback has nothing left to delete.
-		deadline := time.Now().Add(5 * time.Second)
+		deadline := time.Now().Add(10 * time.Second)
 		for time.Now().Before(deadline) {
 			if files, _ := h.store.Stats(); files == 1 {
 				break
 			}
 			time.Sleep(time.Millisecond)
 		}
-		removeStoredFiles(t, h.store.Root())
+		removeStoredFile(t, h.store.Root(), int64(len(stored)))
 
 		// Oversized, so the whole request is rolled back.
 		if _, err := io.WriteString(second, strings.Repeat("y", 200)); err != nil {
@@ -118,12 +121,31 @@ func TestRollbackFailureIsLoggedNotHidden(t *testing.T) {
 	}
 }
 
-// removeStoredFiles deletes every stored file directly on disk, bypassing the
-// store, to simulate an operator or another process interfering.
-func removeStoredFiles(t *testing.T, root string) {
+// removeStoredFile deletes the one stored file of the given size directly on
+// disk, bypassing the store, to simulate an operator or another process
+// interfering.
+//
+// Only that file is touched. Removing the directory tree instead would race
+// with the second upload, which the server creates inside it as soon as it has
+// read that part's headers: land between its MkdirAll and its open and the
+// upload fails for the wrong reason.
+func removeStoredFile(t *testing.T, root string, size int64) {
 	t.Helper()
-	_ = os.RemoveAll(root + "/2026")
-	_ = os.RemoveAll(root + "/" + time.Now().UTC().Format("2006"))
+	var removed string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || removed != "" {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil || info.Size() != size {
+			return err
+		}
+		removed = path
+		return os.Remove(path)
+	})
+	if err != nil || removed == "" {
+		t.Fatalf("could not remove the stored file (found %q): %v", removed, err)
+	}
 }
 
 func TestSlugFallsBackToTheStoredName(t *testing.T) {
