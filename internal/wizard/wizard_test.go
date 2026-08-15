@@ -271,7 +271,7 @@ func TestFilesPerDeploymentStyle(t *testing.T) {
 			}
 		}
 		if perm := names[".env"]; perm != 0o600 {
-			t.Errorf(".env mode = %#o, want 0600 — it holds the token", perm)
+			t.Errorf(".env mode = %#o, want 0600, it holds the token", perm)
 		}
 	}
 }

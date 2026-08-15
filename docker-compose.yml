@@ -1,4 +1,4 @@
-# GoDrop — the smallest thing that works.
+# GoDrop: the smallest thing that works.
 #
 #   1. cp .env.example .env   (then set GODROP_TOKENS)
 #   2. docker compose up -d

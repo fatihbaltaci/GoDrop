@@ -29,7 +29,7 @@ A single-tenant file host, run by the person who holds its tokens.
 Being explicit about this is more useful than a longer list of features.
 
 - **Anyone with the URL can download the file.** That is the design: the URL is
-  the capability. Treat it like a password — do not paste it where it will be
+  the capability. Treat it like a password: do not paste it where it will be
   indexed, and re-upload if it leaks. There is no per-file access control, no
   expiry per file and no signed URL.
 - **A token is all-or-nothing.** It can upload, delete and read `/stats`. There
@@ -43,7 +43,7 @@ Being explicit about this is more useful than a longer list of features.
   upload in half is worse than the connection it holds. Go's own timeouts apply
   to a whole request, so any value large enough for the slowest acceptable
   upload is too large to stop a client that trickles. A proxy can draw the line
-  per read instead, which is what the examples in `deploy/` do —
+  per read instead, which is what the examples in `deploy/` do:
   `client_body_timeout` and `send_timeout` for nginx, a `timeouts` block for
   Caddy. Set the GoDrop variables yourself if you expose it directly.
 
@@ -52,7 +52,7 @@ Being explicit about this is more useful than a longer list of features.
 These come up often enough to write down.
 
 **Tokens are hashed, not encrypted.** A digest cannot be turned back into a
-working token, and — unlike machine-bound encryption — `tokens.json` still
+working token, and unlike machine-bound encryption, `tokens.json` still
 works after being restored onto another host. A plain SHA-256 is right here
 rather than bcrypt or argon2: tokens are 128-bit random values, not
 human-chosen passwords, so there is nothing to brute force.
@@ -87,6 +87,12 @@ history. Use the environment:
 GODROP_TOKEN=gd_... godrop doctor --url https://files.example.com
 ```
 
+**Plain http is not always a mistake.** On loopback nothing readable leaves the
+machine, and over Tailscale the connection is already encrypted, so TLS on top
+adds nothing. On a LAN it is a trade-off: anything else on that network can
+read the token. On a public address it is a real problem, and `godrop doctor`
+fails the report for it.
+
 **CORS is open by default.** `GODROP_CORS_ORIGINS` defaults to `*` so that a
 browser front end works without configuration. Downloads need no credentials,
 so this grants nothing that fetching the URL directly would not. Restrict it if
@@ -97,7 +103,7 @@ you only ever call GoDrop from your own front end.
 `godrop doctor` checks most of this and prints the command that fixes each
 item.
 
-- [ ] A reverse proxy in front, terminating TLS — `GODROP_BASE_URL` on `https`
+- [ ] A reverse proxy in front, terminating TLS, with `GODROP_BASE_URL` on `https`
 - [ ] `GODROP_MAX_TOTAL_SIZE` set, and larger than `GODROP_MAX_FILE_SIZE`
 - [ ] `GODROP_RATE_LIMIT` set if the instance is reachable from the internet
 - [ ] Data directory `0700`, owned by the service user (the `.deb` and `.rpm`

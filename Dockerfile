@@ -1,6 +1,6 @@
 # Build a static binary, then ship it on nothing at all.
 #
-# The result is a ~10MB image with no shell, no package manager and no libc —
+# The result is a ~10MB image with no shell, no package manager and no libc,
 # there is nothing in it to exploit but GoDrop itself. The health check uses the
 # binary's own `health` subcommand, since there is no curl to call.
 FROM golang:1.26-alpine AS build
@@ -16,8 +16,8 @@ COPY . .
 ARG VERSION=dev
 ARG COMMIT=none
 ARG DATE=unknown
-# A PostHog project key is public by design — it is embedded in client-side
-# JavaScript on every site that uses PostHog — so passing it as a build argument
+# A PostHog project key is public by design (it is embedded in client-side
+# JavaScript on every site that uses PostHog), so passing it as a build argument
 # leaks nothing. It is empty by default so that images built from source send no
 # telemetry at all. (BuildKit's SecretsUsedInArgOrEnv check flags any argument
 # named "*KEY"; that warning is expected here.)

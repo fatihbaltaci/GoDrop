@@ -35,7 +35,7 @@ func TestSanitizeExt(t *testing.T) {
 		"mixed.7z":              "7z",
 		"newline.jpg\n":         "",
 		// Only the text after the last dot matters, and it is checked character
-		// by character — no ";" can smuggle a second extension through.
+		// by character, so no ";" can smuggle a second extension through.
 		"semicolon.jpg;.exe":         "exe",
 		"a.b.c.d.e":                  "e",
 		"":                           "",
@@ -250,7 +250,7 @@ func TestLogMiddlewareRecordsUnwrittenResponses(t *testing.T) {
 
 func TestLogsNeverCarryAWholeDownloadURL(t *testing.T) {
 	// The identifier is the only secret protecting a download, so a log reader
-	// must not be able to reconstruct one — while still being able to match a
+	// must not be able to reconstruct one, while still being able to match a
 	// line to its upload and find the file on disk.
 	const id = "20260815-143022-8f4e2c91b7934b38a72d1c0e5b6a4f3d"
 	const kept = "20260815-143022-8f4e2c91"

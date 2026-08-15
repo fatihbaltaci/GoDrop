@@ -2,8 +2,8 @@
 //
 // Tokens are never stored in clear text. The server only ever needs to answer
 // "is this token valid?", so it keeps SHA-256 digests: a leaked tokens.json
-// cannot be turned back into a working token, and — unlike machine-bound
-// encryption — the file survives being restored onto a different host.
+// cannot be turned back into a working token, and unlike machine-bound
+// encryption, the file survives being restored onto a different host.
 //
 // A plain digest is the right choice here (rather than bcrypt or argon2)
 // because tokens are 128-bit random values, not human-chosen passwords: there
@@ -160,7 +160,7 @@ func (s *Store) Verify(presented string) (string, bool) {
 }
 
 // Create generates a new token, stores its digest and returns the clear-text
-// value — the only time it is ever available.
+// value, the only time it is ever available.
 func (s *Store) Create(name string) (string, Token, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -297,7 +297,7 @@ func (s *Store) Flush() error {
 //
 // The running server and `godrop token` are separate processes with separate
 // views of the same file. Without a lock one can read it, be overtaken by the
-// other's write, and then rename its own stale copy into place — silently
+// other's write, and then rename its own stale copy into place, silently
 // undoing a revocation that was reported as successful. Callers already hold
 // the in-process mutex, so only one goroutine per process ever waits here.
 func (s *Store) lockFile() (func(), error) {
@@ -329,7 +329,7 @@ func (s *Store) lockFile() (func(), error) {
 
 // ValidName reports whether a token name is acceptable. Names are labels shown
 // in `godrop token list`, so they stay to a conservative character set and must
-// contain something readable — ".." is not a name.
+// contain something readable: ".." is not a name.
 func ValidName(name string) bool {
 	if name == "" || len(name) > 64 {
 		return false
@@ -378,9 +378,9 @@ func (s *Store) maybeReload() {
 }
 
 // SetErrorHandler installs a callback for token file problems noticed while
-// the server is running. Reloading deliberately fails open — an unreadable
-// file must not lock every client out of a working service — but it must not
-// be silent either, because until it is fixed a revoked token stays valid.
+// the server is running. Reloading deliberately fails open, because an
+// unreadable file must not lock every client out of a working service, but it
+// must not be silent either: until it is fixed, a revoked token stays valid.
 func (s *Store) SetErrorHandler(fn func(error)) {
 	s.mu.Lock()
 	s.onError = fn
@@ -445,7 +445,7 @@ func (s *Store) reloadLocked() error {
 // caller holds the file lock, which has already created the directory.
 func (s *Store) saveLocked() error {
 	// fileFormat holds only strings, times and pointers to them, so encoding it
-	// cannot fail — this error is impossible rather than ignored.
+	// cannot fail: this error is impossible rather than ignored.
 	data, _ := json.MarshalIndent(fileFormat{Tokens: s.tokens}, "", "  ")
 	data = append(data, '\n')
 

@@ -163,5 +163,5 @@ func printReport(out *output, report doctor.Report) {
 		out.success("everything looks good")
 		return
 	}
-	out.fail("%d check(s) failed — fix the items marked above and run `godrop doctor` again", countFailed(report))
+	out.fail("%d check(s) failed. Fix the items marked above and run `godrop doctor` again", countFailed(report))
 }

@@ -4,7 +4,7 @@
 // it again: "20260815-143022-<32 hex>" maps to <root>/2026/08/15/<id>.<ext>.
 // The 128 random bits make identifiers unguessable, the timestamp prefix keeps
 // directories small and makes retention a directory-level operation, and the
-// extension is the only metadata we keep — the MIME type is derived from it at
+// extension is the only metadata we keep. The MIME type is derived from it at
 // download time.
 package storage
 
@@ -363,7 +363,7 @@ const MaxExtLen = 10
 // empty. It returns the number of files removed and the bytes reclaimed.
 //
 // Only recognisable uploads are ever deleted. The service keeps its own state
-// in the same directory — the token database, the telemetry markers — and age
+// in the same directory (the token database, the telemetry markers) and age
 // alone would eventually sweep those away, revoking every token or quietly
 // turning telemetry back on. Files still being written are left alone too.
 func (s *Store) Cleanup(age time.Duration) (removed int, freed int64, err error) {
@@ -427,8 +427,8 @@ func (s *Store) isUpload(path string, d fs.DirEntry) bool {
 }
 
 // rescan recomputes the usage counters by walking the tree once at startup.
-// The counters describe stored uploads, so anything else in the tree — the
-// token database, a stray file an operator copied in — is left out of them
+// The counters describe stored uploads, so anything else in the tree (the
+// token database, a stray file an operator copied in) is left out of them
 // and reported by `godrop doctor` instead.
 func (s *Store) rescan() error {
 	var files, bytes int64
@@ -495,7 +495,7 @@ func (s *Store) Orphans() ([]Orphan, error) {
 		case filepath.Dir(path) == s.root && !ValidID(id):
 			// Stored files always live under a date directory, so anything in
 			// the root that is not identifier-shaped belongs to the service
-			// itself — the token database, for instance.
+			// itself: the token database, for instance.
 			return nil
 		case !ValidID(id) || !ValidExt(ext):
 			out = append(out, Orphan{Path: path, Reason: "invalid file name", Size: info.Size()})

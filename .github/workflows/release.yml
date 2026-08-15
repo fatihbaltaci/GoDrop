@@ -12,8 +12,8 @@ permissions:
 
 env:
   GO_VERSION: "1.26.x"
-  # A PostHog project key is public by design — it ships inside client-side
-  # JavaScript wherever PostHog is used — so this is not a secret. It lives here
+  # A PostHog project key is public by design and ships inside client-side
+  # JavaScript wherever PostHog is used, so this is not a secret. It lives here
   # rather than in the source so that anything built from source, including
   # `go install`, reports no telemetry at all.
   POSTHOG_KEY: phc_ntEyQ2Qo4rBXn5vMPmjgKP8geWW3bZ6kaDfZonkYXz47

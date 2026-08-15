@@ -33,7 +33,7 @@ func newInitCmd(build Build) *cobra.Command {
 		Use:   "init",
 		Short: "Guided setup: configure, generate a token, start and verify",
 		Long: `Walks through the handful of decisions GoDrop needs, writes the configuration
-files, creates your first API token and — if you like — starts the service and
+files, creates your first API token and, if you like, starts the service and
 confirms that the outside world can actually reach it.
 
 Every answer can be supplied as a flag instead; with --no-input the same wizard
@@ -52,7 +52,7 @@ are skipped automatically when there is no terminal.`,
 			switch {
 			case nonInteractive || !interactive():
 				if !nonInteractive {
-					out.skip("no interactive terminal detected — using defaults and flags")
+					out.skip("no interactive terminal detected, using defaults and flags")
 				}
 				prompter = &flagPrompter{out: out}
 			default:
@@ -152,7 +152,7 @@ var (
 var newInteractivePrompter = func(out *output) wizard.Prompter { return newHuhPrompter(out) }
 
 func printBanner(out *output, build Build) {
-	out.printf("\n  GoDrop %s — setup\n", build.Version)
+	out.printf("\n  GoDrop %s setup\n", build.Version)
 	out.printf("  Upload a file, get a hard-to-guess URL.\n")
 }
 
@@ -161,7 +161,7 @@ func reportSetup(out *output, a wizard.Answers, written []string) {
 	for _, w := range written {
 		mode := ""
 		if filepath.Base(w) == ".env" {
-			mode = "  (chmod 600 — contains your token)"
+			mode = "  (chmod 600, contains your token)"
 		}
 		out.success("%s%s", w, mode)
 	}
@@ -170,7 +170,7 @@ func reportSetup(out *output, a wizard.Answers, written []string) {
 	out.printf("\n")
 	out.box(a.Token)
 	out.printf("\n")
-	out.warn("shown once and never again — copy it now")
+	out.warn("shown once and never again, so copy it now")
 	out.skip("stored as a SHA-256 digest in %s", tokens.Path(a.DataDir))
 }
 
@@ -198,8 +198,8 @@ func maybeStart(ctx context.Context, out *output, a wizard.Answers, forceStart b
 }
 
 // verify runs the reachability checks that matter right after installation:
-// is anything listening, does the firewall allow the public port, and — the
-// question a server cannot answer about itself — can the internet reach it.
+// is anything listening, does the firewall allow the public port, and the
+// question a server cannot answer about itself: can the internet reach it.
 func verify(ctx context.Context, out *output, a wizard.Answers) {
 	out.heading("Verifying")
 

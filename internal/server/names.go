@@ -33,8 +33,8 @@ var dangerousExts = map[string]bool{
 // SanitizeExt extracts a storable extension from a client-supplied file name.
 //
 // The client's name is hostile input: it may contain "../", NUL bytes, control
-// characters or Unicode trickery. We keep only what we can prove is harmless —
-// lowercase ASCII alphanumerics, at most storage.MaxExtLen of them — and drop
+// characters or Unicode trickery. We keep only what we can prove is harmless,
+// lowercase ASCII alphanumerics and at most storage.MaxExtLen of them, and drop
 // everything else. The result never reaches a filesystem path on its own; the
 // identifier alone determines the path.
 func SanitizeExt(filename string) string {
@@ -141,8 +141,8 @@ func IsDangerousExt(ext string) bool { return dangerousExts[ext] }
 
 // A download URL is a capability: whoever knows it can fetch the file, and
 // nothing else is asked for. Logs travel further than the files they describe
-// — into shipping pipelines, support tickets, screenshots — so the random half
-// of an identifier is cut short before it is written to one.
+// (shipping pipelines, support tickets, screenshots), so the random half of an
+// identifier is cut short before it is written to one.
 //
 // What is kept is still enough to work with. It identifies the upload uniquely
 // among everything stored in that second, so a request line can be matched to

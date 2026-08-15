@@ -19,8 +19,8 @@ func newTokenCmd(_ Build) *cobra.Command {
 		Long: `Manage the API tokens that authorise uploads and deletes.
 
 Tokens are stored as SHA-256 digests, so the clear-text value is shown exactly
-once, when it is created. A running server notices changes within a second —
-no restart is needed.`,
+once, when it is created. A running server notices changes within a
+second, with no restart needed.`,
 	}
 	cmd.PersistentFlags().String("data-dir", "", "data directory (default $GODROP_DATA_DIR or ./data)")
 	cmd.AddCommand(newTokenCreateCmd(), newTokenListCmd(), newTokenRevokeCmd())
@@ -76,7 +76,7 @@ func newTokenCreateCmd() *cobra.Command {
 			out.printf("\n")
 			out.box(plain)
 			out.printf("\n")
-			out.success("name: %s — usable immediately, no restart needed", tok.Name)
+			out.success("name: %s (usable immediately, no restart needed)", tok.Name)
 			out.warn("this is the only time the token is shown; store it now")
 			out.printf("\n  Try it:\n")
 			out.command(fmt.Sprintf(`curl -X POST -H "Authorization: Bearer %s" \`, plain))
@@ -91,7 +91,7 @@ func newTokenCreateCmd() *cobra.Command {
 func newTokenListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
-		Short: "List tokens (names only — values are not recoverable)",
+		Short: "List tokens (names only, values are not recoverable)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			store, _, err := openTokenStore(cmd)
@@ -144,7 +144,7 @@ func newTokenRevokeCmd() *cobra.Command {
 			}
 			if err := store.Revoke(args[0]); err != nil {
 				if store.EnvCount() > 0 {
-					return fmt.Errorf("%w — tokens set through GODROP_TOKENS are removed by editing your environment", err)
+					return fmt.Errorf("%w. Tokens set through GODROP_TOKENS are removed by editing your environment", err)
 				}
 				return err
 			}
@@ -152,7 +152,7 @@ func newTokenRevokeCmd() *cobra.Command {
 			if out.json {
 				return out.emit(map[string]any{"revoked": args[0]})
 			}
-			out.success("%s revoked — effective immediately", args[0])
+			out.success("%s revoked, effective immediately", args[0])
 			return nil
 		},
 	}

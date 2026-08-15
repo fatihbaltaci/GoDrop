@@ -44,7 +44,7 @@ func Run(p Prompter, a Answers) (Answers, error) {
 		return a, err
 	}
 	if a.MaxTotalSize, err = p.Input("Storage quota",
-		"Uploads stop with 507 once this much is stored. Empty means unlimited — and a full disk takes the whole server down.",
+		"Uploads stop with 507 once this much is stored. Empty means unlimited, and a full disk takes the whole server down.",
 		a.MaxTotalSize, ValidateOptionalSize); err != nil {
 		return a, err
 	}

@@ -47,9 +47,9 @@ func newTelemetrySetCmd(name string, disable bool, short string) *cobra.Command 
 				return out.emit(map[string]any{"telemetry": name})
 			}
 			if disable {
-				out.success("telemetry off — nothing will be sent from this installation")
+				out.success("telemetry off, nothing will be sent from this installation")
 			} else {
-				out.success("telemetry on — one anonymous heartbeat per day")
+				out.success("telemetry on, one anonymous heartbeat per day")
 			}
 			return nil
 		},

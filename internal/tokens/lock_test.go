@@ -12,7 +12,7 @@ import (
 // The server flushes usage timestamps on a timer while `godrop token revoke`
 // may be rewriting the same file from another process. Both read, modify and
 // write the whole file, so without a lock the slower one renames its stale
-// copy over the other's change — and a revocation that was reported as
+// copy over the other's change, and a revocation that was reported as
 // successful comes back to life.
 
 // holdLock creates the lock file the way another process would.
@@ -138,9 +138,9 @@ func TestCreateKeepsNothingWhenTheWriteFails(t *testing.T) {
 // ------------------------------------------------------- reload failures
 
 func TestReloadFailuresAreReportedOnceEach(t *testing.T) {
-	// Reloading fails open on purpose — an unreadable file must not lock every
-	// client out of a working service — but the operator has to hear about it,
-	// because until it is fixed a revoked token stays valid.
+	// Reloading fails open on purpose, because an unreadable file must not lock
+	// every client out of a working service. The operator still has to hear
+	// about it: until it is fixed, a revoked token stays valid.
 	s, path := newTestStore(t, "env-token-value")
 	var reported []string
 	s.SetErrorHandler(func(err error) { reported = append(reported, err.Error()) })

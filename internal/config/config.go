@@ -104,7 +104,7 @@ func LoadFrom(env Getenv) (*Config, error) {
 
 	// Tokens may also come from the token file managed by `godrop token`, so an
 	// empty list is not an error here. The server refuses to start when both
-	// sources are empty — see cli.runServe.
+	// sources are empty. See cli.runServe.
 	cfg.Tokens = ParseTokens(env("GODROP_TOKENS"))
 
 	var err error

@@ -9,5 +9,5 @@ fi
 
 cat <<'MESSAGE'
 GoDrop removed. Your files are still in /var/lib/godrop and the configuration
-in /etc/godrop — delete them yourself if you no longer need them.
+in /etc/godrop. Delete them yourself if you no longer need them.
 MESSAGE

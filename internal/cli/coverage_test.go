@@ -402,7 +402,7 @@ func TestDoctorJSONExitsZeroForAHealthyInstance(t *testing.T) {
 	if !report.OK {
 		for _, c := range report.Checks {
 			if c.Status == "fail" {
-				t.Errorf("unexpected failure: %s — %s", c.Name, c.Detail)
+				t.Errorf("unexpected failure: %s: %s", c.Name, c.Detail)
 			}
 		}
 	}

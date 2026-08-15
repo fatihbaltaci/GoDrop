@@ -20,7 +20,7 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) usageText(base string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "GoDrop %s — upload a file, get a URL\n\n", s.version)
+	fmt.Fprintf(&b, "GoDrop %s: upload a file, get a URL\n\n", s.version)
 	fmt.Fprintf(&b, "  POST   %s/upload            multipart field \"file\" (Bearer token)\n", base)
 	fmt.Fprintf(&b, "  PUT    %s/upload/{name}     raw request body     (Bearer token)\n", base)
 	fmt.Fprintf(&b, "  GET    %s/f/{id}/{name}     public, no auth\n", base)
@@ -140,15 +140,15 @@ Returns 204 on success, 404 if it was already gone.
 
 ## Status codes
 
-- 201 created — upload succeeded
-- 204 no content — delete succeeded
-- 400 bad request — malformed multipart body, or too many files
-- 401 unauthorized — missing or wrong token
-- 404 not found — unknown id, or the name's extension does not match the stored file
-- 413 payload too large — the file is bigger than the limit above
-- 415 unsupported media type — POST /upload needs multipart/form-data
-- 429 too many requests — rate limited; honour the Retry-After header
-- 507 insufficient storage — the server's quota is full
+- 201 created: upload succeeded
+- 204 no content: delete succeeded
+- 400 bad request: malformed multipart body, or too many files
+- 401 unauthorized: missing or wrong token
+- 404 not found: unknown id, or the name's extension does not match the stored file
+- 413 payload too large: the file is bigger than the limit above
+- 415 unsupported media type: POST /upload needs multipart/form-data
+- 429 too many requests: rate limited; honour the Retry-After header
+- 507 insufficient storage: the server's quota is full
 
 ## Notes for agents
 

@@ -14,8 +14,8 @@ import (
 // huhPrompter renders the setup questions as an interactive form.
 //
 // It is intentionally thin: it turns a question into a widget and returns the
-// answer. Everything that could be wrong — validation, defaults, the files that
-// result — lives in package wizard and is covered by tests.
+// answer. Everything that could be wrong (validation, defaults, the files that
+// result) lives in package wizard and is covered by tests.
 type huhPrompter struct {
 	out   *output
 	theme *huh.Theme

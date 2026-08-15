@@ -52,7 +52,7 @@ docker run -d -p 8080:8080 \
   -v godrop-data:/data \
   ghcr.io/fatihbaltaci/godrop
 
-# Debian or Ubuntu — installs the systemd service and creates its user
+# Debian or Ubuntu: installs the systemd service and creates its user
 sudo dpkg -i godrop_1.0.0_linux_amd64.deb
 
 # Fedora, RHEL or openSUSE
@@ -68,7 +68,7 @@ go install github.com/fatihbaltaci/GoDrop/cmd/godrop@latest
 | --- | :---: | :---: | --- |
 | **Linux** (amd64, arm64) | ✅ | ✅ | Where it is meant to run: `.deb`, `.rpm`, `.apk`, container image, systemd unit |
 | **macOS** (Intel, Apple silicon) | ✅ | ✅ | Fine for development and small installs; no systemd, so use Docker or start it yourself |
-| **Windows** (amd64, arm64) | ⚠️ | ✅ | The binary works and is tested in CI, but there is no service wrapper, no installer script and no firewall guidance — take the zip from Releases |
+| **Windows** (amd64, arm64) | ⚠️ | ✅ | The binary works and is tested in CI, but there is no service wrapper, no installer script and no firewall guidance. Take the zip from Releases |
 | **FreeBSD** | 🔧 | 🔧 | Compiles and passes tests; no binaries published |
 
 The suite runs on Linux, macOS and Windows for every change, and each release
@@ -84,7 +84,7 @@ gh attestation verify godrop_1.0.0_linux_amd64.tar.gz --repo fatihbaltaci/GoDrop
 ```console
 $ godrop init
 
-  GoDrop 1.0.0 — setup
+  GoDrop 1.0.0 setup
 
   Public address
   ? Public URL              https://files.example.com
@@ -101,7 +101,7 @@ $ godrop init
   ? Verify reachability     yes
 
   Written
-  ✓ .env  (chmod 600 — contains your token)
+  ✓ .env  (chmod 600, contains your token)
   ✓ docker-compose.yml
   ✓ Caddyfile
 
@@ -109,7 +109,7 @@ $ godrop init
   ┌────────────────────────────────────────┐
   │ gd_7f3a9c2e1b8d4a6f0c5e2d9b3a7f1e4c    │
   └────────────────────────────────────────┘
-  ⚠ shown once and never again — copy it now
+  ⚠ shown once and never again, so copy it now
 
   Verifying
   ✓ 127.0.0.1:8080        listening
@@ -137,15 +137,15 @@ macOS or Windows, and the commands it prints use the right shell.
 | --- | --- | :---: | --- |
 | `POST` | `/upload` | ✅ | multipart, one or more `file` fields |
 | `PUT` | `/upload/{name}` | ✅ | raw request body |
-| `GET`/`HEAD` | `/f/{id}/{name}` · `/f/{id}.{ext}` | — | download; supports Range and ETag |
+| `GET`/`HEAD` | `/f/{id}/{name}` · `/f/{id}.{ext}` | | download; supports Range and ETag |
 | `DELETE` | `/f/{id}/{name}` · `/f/{id}.{ext}` | ✅ | delete |
-| `GET` | `/healthz` | — | liveness |
-| `GET` | `/readyz` | — | readiness: is storage writable |
+| `GET` | `/healthz` | | liveness |
+| `GET` | `/readyz` | | readiness: is storage writable |
 | `GET` | `/stats` | ✅ | file count, bytes, quota, uptime |
-| `GET` | `/llms.txt` · `/openapi.yaml` | — | machine-readable description |
+| `GET` | `/llms.txt` · `/openapi.yaml` | | machine-readable description |
 
 ```bash
-# Upload several files at once — all succeed or none do
+# Upload several files at once: all succeed or none do
 curl -X POST -H "Authorization: Bearer $GODROP_TOKEN" \
   -F "file=@a.png" -F "file=@b.pdf" \
   https://files.example.com/upload
@@ -187,12 +187,329 @@ $ godrop token revoke ci                    # effective within a second
 
 Tokens are stored as **SHA-256 digests** in `<data-dir>/tokens.json` (mode
 `0600`). A leaked file cannot be turned back into a working token, and a backup
-restored onto another machine keeps working — which machine-bound encryption
+restored onto another machine keeps working, which machine-bound encryption
 would break for no security gain. A running server notices new and revoked
 tokens without a restart.
 
 `GODROP_TOKENS` still works and is the practical choice on Docker, Fly and
 Railway; both sources are accepted together.
+
+## Command line
+
+Every command documents itself. This is that output, generated from the binary
+so it cannot drift:
+
+<!-- BEGIN CLI -->
+
+<details>
+<summary><code>godrop --help</code></summary>
+
+```console
+$ godrop --help
+GoDrop is a tiny self-hosted file host.
+
+Running it without a subcommand starts the server, so a container image needs
+no command of its own.
+
+Usage:
+  godrop [flags]
+  godrop [command]
+
+Available Commands:
+  completion  Generate the autocompletion script for the specified shell
+  doctor      Diagnose the installation and print how to fix what is broken
+  health      Probe a running instance (used by the container HEALTHCHECK)
+  help        Help about any command
+  init        Guided setup: configure, generate a token, start and verify
+  serve       Start the HTTP server
+  telemetry   Inspect or change the anonymous heartbeat
+  token       Create, list and revoke API tokens
+  version     Print version information
+
+Flags:
+  -h, --help       help for godrop
+      --json       machine-readable output
+      --no-color   disable coloured output
+
+Use "godrop [command] --help" for more information about a command.
+```
+
+</details>
+
+<details>
+<summary><code>godrop serve --help</code></summary>
+
+```console
+$ godrop serve --help
+Start the HTTP server.
+
+Everything is configured through the environment, so there are no flags to
+learn and the same settings work under systemd, Docker and a bare shell. See
+.env.example for the annotated list, or run "godrop doctor" to see what the
+current environment actually resolves to.
+
+Plain http is fine on loopback, on a private network or over Tailscale. Put a
+reverse proxy in front for TLS on a public address.
+
+Usage:
+  godrop serve [flags]
+
+Flags:
+  -h, --help   help for serve
+
+Global Flags:
+      --json       machine-readable output
+      --no-color   disable coloured output
+```
+
+</details>
+
+<details>
+<summary><code>godrop init --help</code></summary>
+
+```console
+$ godrop init --help
+Walks through the handful of decisions GoDrop needs, writes the configuration
+files, creates your first API token and, if you like, starts the service and
+confirms that the outside world can actually reach it.
+
+Every answer can be supplied as a flag instead; with --no-input the same wizard
+runs without asking anything, which is what CI and agents should use. Prompts
+are skipped automatically when there is no terminal.
+
+Usage:
+  godrop init [flags]
+
+Flags:
+      --base-url string         public URL, e.g. https://files.example.com
+      --data-dir string         where uploaded files are stored (default "/var/lib/godrop")
+      --deployment string       compose, systemd or env (default "compose")
+      --force                   overwrite existing configuration files
+  -h, --help                    help for init
+      --max-file-size string    per-file limit, e.g. 100MB (default "100MB")
+      --max-total-size string   storage quota, empty for unlimited (default "20GB")
+      --no-external-check       do not ask godrop.sh to verify reachability
+      --no-input                never prompt; use flags and defaults (for CI and agents)
+      --out-dir string          where to write the generated files (default: working directory)
+      --port string             listen port (default "8080")
+      --retention string        delete files after this long, e.g. 30d
+      --start                   start the service when setup finishes
+      --telemetry               send the anonymous daily heartbeat (default true)
+      --token-name string       name for the generated token (default "default")
+
+Global Flags:
+      --json       machine-readable output
+      --no-color   disable coloured output
+```
+
+</details>
+
+<details>
+<summary><code>godrop token --help</code></summary>
+
+```console
+$ godrop token --help
+Manage the API tokens that authorise uploads and deletes.
+
+Tokens are stored as SHA-256 digests, so the clear-text value is shown exactly
+once, when it is created. A running server notices changes within a
+second, with no restart needed.
+
+Usage:
+  godrop token [command]
+
+Available Commands:
+  create      Create a new API token
+  list        List tokens (names only, values are not recoverable)
+  revoke      Revoke a token by name
+
+Flags:
+      --data-dir string   data directory (default $GODROP_DATA_DIR or ./data)
+  -h, --help              help for token
+
+Global Flags:
+      --json       machine-readable output
+      --no-color   disable coloured output
+
+Use "godrop token [command] --help" for more information about a command.
+```
+
+</details>
+
+<details>
+<summary><code>godrop token create --help</code></summary>
+
+```console
+$ godrop token create --help
+Create a new API token
+
+Usage:
+  godrop token create [flags]
+
+Flags:
+  -h, --help          help for create
+      --name string   label for this token (e.g. claude-code, ci, blog)
+
+Global Flags:
+      --data-dir string   data directory (default $GODROP_DATA_DIR or ./data)
+      --json              machine-readable output
+      --no-color          disable coloured output
+```
+
+</details>
+
+<details>
+<summary><code>godrop token list --help</code></summary>
+
+```console
+$ godrop token list --help
+List tokens (names only, values are not recoverable)
+
+Usage:
+  godrop token list [flags]
+
+Flags:
+  -h, --help   help for list
+
+Global Flags:
+      --data-dir string   data directory (default $GODROP_DATA_DIR or ./data)
+      --json              machine-readable output
+      --no-color          disable coloured output
+```
+
+</details>
+
+<details>
+<summary><code>godrop token revoke --help</code></summary>
+
+```console
+$ godrop token revoke --help
+Revoke a token by name
+
+Usage:
+  godrop token revoke <name> [flags]
+
+Flags:
+  -h, --help   help for revoke
+
+Global Flags:
+      --data-dir string   data directory (default $GODROP_DATA_DIR or ./data)
+      --json              machine-readable output
+      --no-color          disable coloured output
+```
+
+</details>
+
+<details>
+<summary><code>godrop doctor --help</code></summary>
+
+```console
+$ godrop doctor --help
+Checks configuration, storage, security posture, network reachability and
+available updates, then prints the exact command that fixes each problem.
+
+Run it on the server for the full picture, or point it at a remote instance
+with --url. Exits non-zero when a check fails, so it works as a deployment
+gate.
+
+The token for a remote check is read from GODROP_TOKEN, so that it stays out
+of the process list and the shell history:
+
+  GODROP_TOKEN=gd_... godrop doctor --url https://files.example.com
+
+Usage:
+  godrop doctor [flags]
+
+Flags:
+      --check-url string   reachability service (default https://godrop.sh/api/check)
+  -h, --help               help for doctor
+      --offline            skip every check that needs the network
+      --token string       API token for the round-trip check; prefer GODROP_TOKEN, which does not appear in the process list
+      --url string         diagnose a remote instance at this base URL
+
+Global Flags:
+      --json       machine-readable output
+      --no-color   disable coloured output
+```
+
+</details>
+
+<details>
+<summary><code>godrop telemetry --help</code></summary>
+
+```console
+$ godrop telemetry --help
+GoDrop sends one anonymous heartbeat per day:
+
+    {install_id, version, os, arch, deploy}
+
+That is the whole payload. No file names, no identifiers, no counters, no
+addresses, no base URL. Use `godrop telemetry status --json` to see the exact
+body that would be transmitted.
+
+Usage:
+  godrop telemetry [command]
+
+Available Commands:
+  off         Disable the anonymous heartbeat
+  on          Enable the anonymous heartbeat
+  status      Show whether telemetry is active and what would be sent
+
+Flags:
+      --data-dir string   data directory (default $GODROP_DATA_DIR or ./data)
+  -h, --help              help for telemetry
+
+Global Flags:
+      --json       machine-readable output
+      --no-color   disable coloured output
+
+Use "godrop telemetry [command] --help" for more information about a command.
+```
+
+</details>
+
+<details>
+<summary><code>godrop health --help</code></summary>
+
+```console
+$ godrop health --help
+Probe a running instance (used by the container HEALTHCHECK)
+
+Usage:
+  godrop health [flags]
+
+Flags:
+  -h, --help         help for health
+      --url string   URL to probe (default: the local listen address)
+
+Global Flags:
+      --json       machine-readable output
+      --no-color   disable coloured output
+```
+
+</details>
+
+<details>
+<summary><code>godrop version --help</code></summary>
+
+```console
+$ godrop version --help
+Print version information
+
+Usage:
+  godrop version [flags]
+
+Flags:
+  -h, --help   help for version
+
+Global Flags:
+      --json       machine-readable output
+      --no-color   disable coloured output
+```
+
+</details>
+
+<!-- END CLI -->
 
 ## Configuration
 
@@ -201,7 +518,7 @@ durations accept `30d`, `12h`, `90m`; rates accept `60/m`, `10/s`, `100/h`.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `GODROP_TOKENS` | — | Comma-separated API tokens |
+| `GODROP_TOKENS` | *(required)* | Comma-separated API tokens |
 | `GODROP_BASE_URL` | *(from request)* | Public URL used in responses |
 | `GODROP_ADDR` | `:8080` | Listen address |
 | `GODROP_DATA_DIR` | `./data` | Where files live (`/data` in the image) |
@@ -236,7 +553,7 @@ data/2026/08/15/20260815-143022-8f4e2c91b7934b38a72d1c0e5b6a4f3d.jpg
 The identifier *is* the index. It carries its own location, so a lookup needs
 no database and no directory scan; the timestamp keeps directories small and
 makes retention a directory-level operation; the 128 random bits make URLs
-unguessable. The extension is the only metadata kept — the MIME type is derived
+unguessable. The extension is the only metadata kept. The MIME type is derived
 from it at download time.
 
 **There is no listing endpoint, by design.** Keep the URL an upload returns.
@@ -277,7 +594,7 @@ It exits non-zero when a check fails, so it works as a deployment gate:
 `godrop doctor --json | jq '.checks[] | select(.status=="fail")'`.
 
 The reachability check asks <https://godrop.sh/api/check> to fetch your
-`/healthz` from the public internet — the only way to catch a cloud firewall,
+`/healthz` from the public internet, the only way to catch a cloud firewall,
 which is invisible from inside the machine. Only the URL is sent; skip it with
 `--offline`.
 
@@ -291,6 +608,28 @@ GODROP_TOKEN=gd_... godrop doctor --url https://files.example.com
 
 ## Deploying
 
+### On your own machine, a LAN or Tailscale
+
+TLS is not required. GoDrop speaks plain http, and on a network where nobody
+can read the traffic that is the right choice rather than a compromise:
+
+```bash
+GODROP_TOKENS=$(openssl rand -hex 16) \
+GODROP_BASE_URL=http://localhost:8080 \
+godrop serve
+```
+
+Set `GODROP_BASE_URL` to whatever the client will actually type, because that
+is what the returned URLs are built from: `http://localhost:8080`,
+`http://100.101.102.103:8080` for a Tailscale address, or
+`http://nas.local:8080` on a home network. Leave it unset and the URL is
+derived from the request, which also works.
+
+`godrop doctor` judges plain http by who could be listening. Loopback and
+Tailscale pass, because nothing readable leaves the machine in the first case
+and the connection is already encrypted in the second. A LAN address warns:
+tokens are readable by anything else on that network. A public address fails.
+
 ### A VPS with automatic TLS
 
 ```bash
@@ -301,7 +640,7 @@ docker compose -f deploy/docker-compose.caddy.yml up -d
 
 `deploy/` also holds [`nginx.conf`](deploy/nginx.conf) and a hardened
 [`godrop.service`](deploy/godrop.service) for systemd. Whichever proxy you use,
-**raise its body size limit** to match `GODROP_MAX_FILE_SIZE` — `godrop doctor`
+**raise its body size limit** to match `GODROP_MAX_FILE_SIZE`. `godrop doctor`
 tests this for you.
 
 The `.deb` and `.rpm` packages do the systemd part for you: they install the
@@ -327,15 +666,8 @@ on the next deploy.
 ### Render
 
 Use [`render.yaml`](render.yaml) as a blueprint. The persistent disk requires a
-paid instance and pins the service to one instance — GoDrop stores files on
-local disk and does not scale horizontally, by design.
-
-### Not Vercel, not Cloudflare Workers
-
-Both have ephemeral or absent filesystems: an uploaded file would be gone on
-the next deploy or the next request. Making it "work" would mean adding object
-storage, which is exactly the complexity this project exists to avoid. Use a
-platform with a real disk.
+paid instance and pins the service to one instance, because GoDrop stores files
+on local disk and does not scale horizontally, by design.
 
 ## For AI agents
 
@@ -347,11 +679,11 @@ curl https://files.example.com/llms.txt       # the whole API as plain text
 curl https://files.example.com/openapi.yaml   # machine-readable schema
 ```
 
-- [`SKILL.md`](SKILL.md) — drop-in skill file for Claude Code and similar tools
+- [`SKILL.md`](SKILL.md): a drop-in skill file for Claude Code and similar tools
 - Every command accepts `--json`, and in that mode prints **nothing but** the
   document, so parsing never breaks
 - Colour and interactive prompts switch themselves off when there is no
-  terminal — an agent can never get stuck on a form
+  terminal, so an agent can never get stuck on a form
 
 ```bash
 godrop token create --name claude-code --json | jq -r .token
@@ -360,19 +692,19 @@ godrop doctor --json | jq '.ok'
 
 ## Security
 
-- **Unguessable identifiers** — 128 bits from `crypto/rand`; no enumeration
+- **Unguessable identifiers**: 128 bits from `crypto/rand`; no enumeration
   endpoint exists
-- **No path traversal, structurally** — the storage path is derived from the
+- **No path traversal, structurally**: the storage path is derived from the
   validated identifier alone; a client-supplied name never takes part in it
-- **Active content is never rendered** — `.html`, `.svg`, `.xml` and friends are
+- **Active content is never rendered**: `.html`, `.svg`, `.xml` and friends are
   always sent as downloads, with `nosniff` and `Content-Security-Policy:
   default-src 'none'; sandbox` on every response
-- **Names cannot lie** — `/f/<id>/setup.exe` does not resolve to a stored `.jpg`
+- **Names cannot lie**: `/f/<id>/setup.exe` does not resolve to a stored `.jpg`
 - **Constant-time token comparison**, digests at rest, tokens never logged
-- **Fails closed** — the server refuses to start without a token
-- **Bounded everything** — per-file size, per-request size, file count, storage
+- **Fails closed**: the server refuses to start without a token
+- **Bounded everything**: per-file size, per-request size, file count, storage
   quota, and optional per-token and per-address rate limits
-- **Logs are not a key ring** — the random half of an identifier is cut short
+- **Logs are not a key ring**: the random half of an identifier is cut short
   before it is written to a log, so a log reader cannot rebuild a download URL
 
 [SECURITY.md](SECURITY.md) sets out what GoDrop defends, what it deliberately
@@ -388,7 +720,7 @@ GoDrop sends one anonymous heartbeat per day:
  "properties":{"version":"1.0.0","os":"linux","arch":"arm64","deploy":"docker"}}
 ```
 
-That is the entire payload — no file names, no counts, no addresses, no base
+That is the entire payload: no file names, no counts, no addresses, no base
 URL. It exists to answer "how many installations are there, on what, and how
 many are stuck on an old version".
 
@@ -408,10 +740,14 @@ make fuzz         # fuzz the input sanitisers
 make run          # a local server on port 48080
 make docker       # build the image
 make snapshot     # build every release artefact locally, without publishing
+make docs         # regenerate the command line reference above
 ```
 
+The website lives in [`site/`](site) and [`worker/`](worker), and is deployed
+separately from the binary. See [`worker/README.md`](worker/README.md).
+
 Releases come from [GoReleaser](https://goreleaser.com) via
-[`.goreleaser.yaml`](.goreleaser.yaml) — binaries, archives, checksums, Linux
+[`.goreleaser.yaml`](.goreleaser.yaml): binaries, archives, checksums, Linux
 packages and the changelog. CI builds the whole set on every change, so a tag
 never fails on something that could have been caught earlier.
 

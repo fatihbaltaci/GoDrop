@@ -323,7 +323,7 @@ func TestGuessingAnIdentifierReturns404(t *testing.T) {
 	got := h.uploadOK(t, [2]string{"photo.jpg", "bytes"})
 	id, _ := storage.SplitName(got.Files[0].ID)
 
-	// Neighbouring identifiers — same timestamp, one hex digit apart — must not
+	// Neighbouring identifiers (same timestamp, one hex digit apart) must not
 	// resolve. There is no listing endpoint either.
 	neighbour := id[:len(id)-1] + string(nextHexDigit(id[len(id)-1]))
 	resp := h.do(t, http.MethodGet, h.URL+"/f/"+neighbour+".jpg", "")
@@ -517,7 +517,7 @@ func TestClientIPWithMalformedRemoteAddr(t *testing.T) {
 func TestPanicInAHandlerBecomesA500(t *testing.T) {
 	h := newHarness(t, nil)
 	// Replace the store with one whose root has been removed, then ask for a
-	// path that makes the handler dereference it — the recover middleware must
+	// path that makes the handler dereference it, the recover middleware must
 	// convert any panic into a 500 rather than killing the process.
 	rec := httptest.NewRecorder()
 	panicking := h.serverForPanic()

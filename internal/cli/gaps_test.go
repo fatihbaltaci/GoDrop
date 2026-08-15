@@ -32,7 +32,7 @@ func TestExecuteWritesToTheProcessStreams(t *testing.T) {
 
 func TestRootWithoutArgumentsServes(t *testing.T) {
 	// A container image runs the bare binary, so the root command must be the
-	// server — here it fails for want of a token, which proves it got there.
+	// server. Here it fails for want of a token, which proves it got there.
 	t.Setenv("GODROP_DATA_DIR", t.TempDir())
 	t.Setenv("GODROP_TOKENS", "")
 	code, _, stderr := run(t, testBuild())
@@ -458,8 +458,18 @@ func TestFlushTokensLogsFailures(t *testing.T) {
 
 	var logs safeBuffer
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go flushTokens(ctx, store, slog.New(slog.NewTextHandler(&logs, nil)))
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		flushTokens(ctx, store, slog.New(slog.NewTextHandler(&logs, nil)))
+	}()
+	// Wait for the loop to stop before anything else is cleaned up: it writes
+	// into the directory the test is about to remove, and one more flush
+	// landing during the removal would fail the test for the wrong reason.
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
 
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {

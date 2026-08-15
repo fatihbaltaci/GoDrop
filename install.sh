@@ -73,7 +73,7 @@ choose_bin_dir() {
 }
 
 main() {
-	printf '\n  %sGoDrop%s — upload a file, get a hard-to-guess URL\n\n' "$BOLD" "$RESET"
+	printf '\n  %sGoDrop%s: upload a file, get a hard-to-guess URL\n\n' "$BOLD" "$RESET"
 
 	need curl
 	need uname
@@ -95,7 +95,7 @@ main() {
 	curl -fsSL "$base/$archive" -o "$tmp/$archive" ||
 		die "download failed: $base/$archive"
 	curl -fsSL "$base/SHA256SUMS" -o "$tmp/SHA256SUMS" ||
-		die "could not download SHA256SUMS — refusing to install an unverified binary"
+		die "could not download SHA256SUMS, refusing to install an unverified binary"
 
 	# Verify before unpacking. This is the whole security model of `curl | sh`:
 	# the script comes from godrop.sh over TLS, the binary is checked against a
@@ -110,7 +110,7 @@ main() {
 	else
 		die "neither sha256sum nor shasum is available; cannot verify the download"
 	fi
-	[ "$expected" = "$actual" ] || die "checksum mismatch — expected $expected, got $actual"
+	[ "$expected" = "$actual" ] || die "checksum mismatch: expected $expected, got $actual"
 	ok "checksum verified"
 
 	tar -xzf "$tmp/$archive" -C "$tmp" || die "could not unpack $archive"
@@ -131,7 +131,7 @@ main() {
 
 	case ":$PATH:" in
 		*":$BIN_DIR:"*) ;;
-		*) warn "$BIN_DIR is not in your PATH — add: export PATH=\"$BIN_DIR:\$PATH\"" ;;
+		*) warn "$BIN_DIR is not in your PATH. Add: export PATH=\"$BIN_DIR:\$PATH\"" ;;
 	esac
 
 	printf '\n'

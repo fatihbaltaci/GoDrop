@@ -222,7 +222,7 @@ func TestInitRunsTheRealFormsWhenATerminalIsPresent(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, stderr = %s", code, stderr)
 	}
-	if !strings.Contains(out, "GoDrop 1.2.3 — setup") {
+	if !strings.Contains(out, "GoDrop 1.2.3 setup") {
 		t.Errorf("the interactive run should print the banner:\n%s", out)
 	}
 	if _, err := os.Stat(filepath.Join(outDir, ".env")); err != nil {

@@ -167,7 +167,7 @@ func serveInBackground(t *testing.T, token string, env map[string]string) (strin
 
 func TestServeReportsATokenFileItCanNoLongerRead(t *testing.T) {
 	// Reloading fails open, so a broken token file leaves the server running
-	// with the last good copy — and a revoked token still valid. The operator
+	// with the last good copy, and a revoked token still valid. The operator
 	// only finds out if it says so.
 	const token = "gd_a1b2c3d4e5f60718293a4b5c6d7e8f90"
 	addr := freePort(t)

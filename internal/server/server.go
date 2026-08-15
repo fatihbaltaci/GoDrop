@@ -246,7 +246,7 @@ func bearerToken(r *http.Request) string {
 }
 
 // clientIP resolves the caller's address. X-Forwarded-For is honoured only when
-// the immediate peer is loopback or private — that is, a local reverse proxy.
+// the immediate peer is loopback or private, that is, a local reverse proxy.
 // A client on the public internet cannot forge its way past the rate limiter.
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)

@@ -3,7 +3,7 @@
 // platforms deserve attention.
 //
 // What is sent: a random installation id, the GoDrop version, the operating
-// system, the CPU architecture and the deployment type. Nothing else — no file
+// system, the CPU architecture and the deployment type. Nothing else: no file
 // names, no identifiers, no counters, no client addresses, no base URL.
 //
 // It can be switched off with GODROP_TELEMETRY=off or `godrop telemetry off`.
@@ -169,7 +169,7 @@ func (c *Client) Send(ctx context.Context) error {
 		return nil
 	}
 	// The payload is a fixed shape of strings, so encoding it cannot fail.
-	// api_key is a PostHog project key, which is public by design — it ships in
+	// api_key is a PostHog project key, which is public by design and ships in
 	// client-side JavaScript wherever PostHog is used.
 	body, _ := json.Marshal(c.Payload()) //nolint:gosec // G117
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.host+"/i/v0/e", bytes.NewReader(body))

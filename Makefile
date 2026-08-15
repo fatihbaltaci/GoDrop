@@ -1,4 +1,4 @@
-# GoDrop — development shortcuts.
+# GoDrop development shortcuts.
 BINARY  := godrop
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
@@ -56,6 +56,10 @@ run: ## Run a development server on port 48080 with a throwaway token
 	GODROP_LOG_FORMAT=text \
 	GODROP_TELEMETRY=off \
 	go run ./cmd/godrop serve
+
+.PHONY: docs
+docs: build ## Regenerate the command line reference in README.md
+	sh scripts/readme-cli.sh bin/$(BINARY)
 
 .PHONY: snapshot
 snapshot: ## Build every release artefact locally, without publishing

@@ -536,7 +536,7 @@ func TestWriteFailsWhenTheDirectoryCannotBeCreated(t *testing.T) {
 
 func TestFlushNeverResurrectsARevokedToken(t *testing.T) {
 	// The server and the CLI hold separate views of the same file. A revocation
-	// through the CLI must survive the server's next periodic flush — otherwise
+	// through the CLI must survive the server's next periodic flush, otherwise
 	// a token could come back to life moments after being revoked.
 	dir := t.TempDir()
 	server, err := New(Path(dir), nil)

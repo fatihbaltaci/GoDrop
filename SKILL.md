@@ -1,6 +1,6 @@
 ---
 name: godrop
-description: Upload a file to a GoDrop server and get a public URL back. Use when you need to share a file, screenshot, log, build artifact or report as a link — including when a user asks for "a link to this file". Also covers deleting an uploaded file and checking a GoDrop instance's health.
+description: Upload a file to a GoDrop server and get a public URL back. Use when you need to share a file, screenshot, log, build artifact or report as a link, including when a user asks for "a link to this file". Also covers deleting an uploaded file and checking a GoDrop instance's health.
 ---
 
 # GoDrop
@@ -98,7 +98,7 @@ curl -sS -X DELETE -H "Authorization: Bearer $GODROP_TOKEN" "$url"
 ```
 
 `204` on success, `404` if it was already gone. **Keep the URL from the upload
-response** — there is no listing endpoint, and a file whose URL is lost cannot
+response**: there is no listing endpoint, and a file whose URL is lost cannot
 be found again.
 
 ## Check an instance
@@ -134,7 +134,7 @@ Errors are always `{"error": "..."}`.
   not expect an uploaded page to open in a browser.
 - **Downloads support Range and ETag**, so resuming and conditional requests
   work normally.
-- **Do not put the token in a URL** — it belongs in the header. Never paste it
+- **Do not put the token in a URL**: it belongs in the header. Never paste it
   into a file you are about to upload.
 
 ## Running your own

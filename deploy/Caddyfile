@@ -23,7 +23,7 @@ files.example.com {
 	reverse_proxy godrop:8080
 
 	# This must be at least as large as GODROP_MAX_FILE_SIZE. Without it the
-	# proxy rejects large uploads with 413 before GoDrop ever sees them — the
+	# proxy rejects large uploads with 413 before GoDrop ever sees them, and it is the
 	# single most common reason a working install "suddenly" refuses files.
 	request_body {
 		max_size 100MB

@@ -129,7 +129,7 @@ jobs:
           version: v2.12.2
 
       - name: Shellcheck the installer and package scripts
-        run: shellcheck install.sh packaging/*.sh
+        run: shellcheck install.sh packaging/*.sh scripts/*.sh
 
   release-config:
     name: Release config

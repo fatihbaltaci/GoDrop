@@ -5,7 +5,7 @@
 #   3. Set GODROP_TOKENS and GODROP_BASE_URL in the dashboard.
 #
 # The disk is what makes uploads persistent. It requires a paid instance type
-# and binds the service to a single instance — GoDrop stores files on local
+# and binds the service to a single instance, because GoDrop stores files on local
 # disk, so it does not scale horizontally by design.
 services:
   - type: web
