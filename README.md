@@ -350,7 +350,7 @@ Usage:
 
 Flags:
       --base-url string         public URL, e.g. https://files.example.com
-      --data-dir string         where uploaded files are stored (default "/Users/fatihbaltaci/.local/share/godrop")
+      --data-dir string         where uploaded files are stored (default /var/lib/godrop as root, ~/.local/share/godrop otherwise)
       --deployment string       compose, systemd or env (default "compose")
       --force                   overwrite existing configuration files
   -h, --help                    help for init

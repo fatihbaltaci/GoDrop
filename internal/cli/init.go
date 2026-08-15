@@ -23,6 +23,7 @@ import (
 func newInitCmd(build Build) *cobra.Command {
 	var (
 		answers        = wizard.Defaults()
+		dataDir        string
 		setLimits      bool
 		nonInteractive bool
 		force          bool
@@ -46,6 +47,9 @@ are skipped automatically when there is no terminal.`,
 			out := newOutput(cmd)
 			answers.ExternalCheck = answers.ExternalCheck && !skipExternal
 			answers.DefaultLimits = !setLimits && !anyLimitFlagSet(cmd)
+			if dataDir != "" {
+				answers.DataDir = dataDir
+			}
 
 			if outDir == "" {
 				outDir = wizard.ConfigDir(os.Getenv, os.Geteuid() == 0)
@@ -141,7 +145,11 @@ are skipped automatically when there is no terminal.`,
 
 	f := cmd.Flags()
 	f.StringVar(&answers.BaseURL, "base-url", answers.BaseURL, "public URL, e.g. https://files.example.com")
-	f.StringVar(&answers.DataDir, "data-dir", answers.DataDir, "where uploaded files are stored")
+	// The default depends on who is running setup and on where their home
+	// directory is, so it is described rather than printed: a help text that
+	// differs from machine to machine cannot be documented.
+	f.StringVar(&dataDir, "data-dir", "",
+		"where uploaded files are stored (default /var/lib/godrop as root, ~/.local/share/godrop otherwise)")
 	f.StringVar(&answers.Port, "port", answers.Port, "listen port")
 	f.StringVar(&answers.MaxFileSize, "max-file-size", answers.MaxFileSize, "per-file limit, e.g. 100MB")
 	f.StringVar(&answers.MaxTotalSize, "max-total-size", answers.MaxTotalSize, "storage quota, empty for unlimited")
