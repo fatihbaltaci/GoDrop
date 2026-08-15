@@ -81,11 +81,15 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository_owner }}/godrop
+          # latest=auto leaves :latest alone for a prerelease, and
+          # metadata-action skips the {{major}} and {{major}}.{{minor}} tags
+          # for one too. A release candidate must not become what people get
+          # when they pull without asking for a version.
+          flavor: latest=auto
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            type=raw,value=latest
 
       - id: build
         uses: docker/build-push-action@v7
