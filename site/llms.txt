@@ -1,0 +1,100 @@
+# GoDrop
+
+> A tiny self-hosted file host written in Go. Upload a file with a token and
+> get back a URL nobody can guess. Anyone with the URL can download it; no
+> token is needed to read. One binary, no database, files on disk.
+
+This file describes the project. A running GoDrop instance serves its own
+`/llms.txt` describing that instance's API, with the limits it actually
+enforces, and `/openapi.yaml` alongside it.
+
+- Source: https://github.com/fatihbaltaci/GoDrop
+- Install: `curl -fsSL https://godrop.sh/install.sh | sh`
+- Licence: MIT
+
+## What it does
+
+Upload a file, get a hard-to-guess URL:
+
+```bash
+curl -X POST -H "Authorization: Bearer $GODROP_TOKEN" \
+  -F "file=@photo.jpg" https://files.example.com/upload
+```
+
+```json
+{
+  "url": "https://files.example.com/f/20260815-143022-8f4e2c91b7934b38a72d1c0e5b6a4f3d/photo.jpg",
+  "files": [{ "name": "photo.jpg", "size": 12345, "mime": "image/jpeg" }]
+}
+```
+
+Downloads need no token. Deletes do:
+
+```bash
+curl -O   https://files.example.com/f/20260815-143022-8f4e…/photo.jpg
+curl -X DELETE -H "Authorization: Bearer $GODROP_TOKEN" \
+  https://files.example.com/f/20260815-143022-8f4e…/photo.jpg
+```
+
+## The API
+
+| Method | Path | Auth | Purpose |
+| --- | --- | --- | --- |
+| POST | `/upload` | yes | multipart, one or more `file` fields |
+| PUT | `/upload/{name}` | yes | raw request body |
+| GET, HEAD | `/f/{id}/{name}` | no | download; supports Range and ETag |
+| DELETE | `/f/{id}/{name}` | yes | delete |
+| GET | `/healthz` | no | liveness |
+| GET | `/readyz` | no | readiness: is storage writable |
+| GET | `/stats` | yes | file count, bytes, quota, uptime |
+| GET | `/llms.txt`, `/openapi.yaml` | no | machine-readable description |
+
+Both `Authorization: Bearer <token>` and `X-API-Key: <token>` are accepted.
+
+Status codes: 201 uploaded, 204 deleted, 400 malformed body or too many
+files, 401 bad token, 404 unknown id, 413 file too large, 415 not multipart,
+429 rate limited (honour `Retry-After`), 507 quota full.
+
+**There is no listing endpoint, by design.** Keep the URL an upload returns;
+a file whose URL is lost cannot be found again.
+
+## For coding agents
+
+An agent needs two values, and nothing else:
+
+```bash
+export GODROP_URL=https://files.example.com
+export GODROP_TOKEN=gd_...
+```
+
+GoDrop ships an agent skill and installs it itself:
+
+```bash
+godrop skill install --scope user
+gh skill install fatihbaltaci/GoDrop godrop --scope user
+```
+
+Every command accepts `--json` and prints nothing but the document in that
+mode. Colour and prompts switch themselves off without a terminal, so an
+agent never gets stuck on a form.
+
+## Running it
+
+- Docker: `docker run -v godrop-data:/data ghcr.io/fatihbaltaci/godrop`
+- A VPS: one binary, a hardened systemd unit, `.deb`, `.rpm` and `.apk`
+  packages
+- Fly.io, Railway, Render: ready-made manifests, each with a volume
+- Your own machine, a LAN or Tailscale: plain http is fine there, and
+  `godrop doctor` says so rather than warning about it
+
+Configuration is entirely environment variables: `GODROP_TOKENS`,
+`GODROP_BASE_URL`, `GODROP_DATA_DIR`, `GODROP_MAX_FILE_SIZE`,
+`GODROP_MAX_TOTAL_SIZE`, `GODROP_RETENTION`, `GODROP_RATE_LIMIT` and a few
+more, all listed in the README.
+
+## Links
+
+- README: https://github.com/fatihbaltaci/GoDrop/blob/main/README.md
+- Security: https://github.com/fatihbaltaci/GoDrop/blob/main/SECURITY.md
+- Agent skill: https://github.com/fatihbaltaci/GoDrop/blob/main/skills/godrop/SKILL.md
+- Releases: https://github.com/fatihbaltaci/GoDrop/releases

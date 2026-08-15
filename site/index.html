@@ -79,7 +79,28 @@
     overflow-x: auto;
     margin: 0 0 1rem;
     font: 13.5px/1.7 ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    position: relative;
   }
+  /* The copy button is added by copy.js, so it is never there without one. */
+  .copy {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    padding: 0.25rem 0.6rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--card);
+    color: var(--muted);
+    font: 600 11px/1.6 system-ui, sans-serif;
+    letter-spacing: 0.03em;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.12s ease, color 0.12s ease;
+  }
+  pre:hover .copy, .copy:focus-visible { opacity: 1; }
+  .copy:hover { color: var(--fg); }
+  /* Touch has no hover, so the button is simply always there. */
+  @media (hover: none) { .copy { opacity: 1; } }
   code { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace; }
   p code, li code {
     background: var(--code-bg);
@@ -190,10 +211,15 @@
   <h2>For AI agents</h2>
   <p>
     Give an agent two values, a base URL and a token, and it can work out the
-    rest by itself:
+    rest by itself. Every instance describes its own API, with the limits that
+    instance actually enforces:
   </p>
 <pre><code>curl https://files.example.com/llms.txt      <span class="cmt"># the whole API in plain text</span>
 curl https://files.example.com/openapi.yaml  <span class="cmt"># machine-readable schema</span></code></pre>
+  <p>
+    This site has one too, describing the project rather than an instance:
+    <a href="llms.txt">godrop.sh/llms.txt</a>.
+  </p>
   <p>
     There is a ready-made
     <a href="https://github.com/fatihbaltaci/GoDrop/blob/main/skills/godrop/SKILL.md">agent skill</a>,
@@ -214,5 +240,6 @@ gh skill install fatihbaltaci/GoDrop godrop --scope user</code></pre>
     <span>Sponsored by <a href="https://getanteon.com/">Anteon</a> and <a href="https://gurubase.io/">Gurubase</a></span>
   </footer>
 </main>
+<script src="copy.js"></script>
 </body>
 </html>
