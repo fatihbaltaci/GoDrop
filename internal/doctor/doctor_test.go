@@ -1470,7 +1470,10 @@ func TestCertificateExpiryIsReportedBeforeItBites(t *testing.T) {
 			if got.Status != tc.want || !strings.Contains(got.Detail, tc.detail) {
 				t.Errorf("tls_cert = %s (%q), want %s mentioning %q", got.Status, got.Detail, tc.want, tc.detail)
 			}
-			if perms := find(t, Run(context.Background(), offlineOptions(cfg)), "tls_key_perms"); perms.Status != Pass {
+			// Windows reports 0666 whatever the file was created with, so the
+			// mode only means something on a POSIX filesystem.
+			if perms := find(t, Run(context.Background(), offlineOptions(cfg)), "tls_key_perms"); perms.Status != Pass &&
+				runtime.GOOS != "windows" {
 				t.Errorf("tls_key_perms = %s (%q)", perms.Status, perms.Detail)
 			}
 		})
