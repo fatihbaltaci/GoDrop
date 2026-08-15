@@ -160,6 +160,16 @@ func TestMissingQuotaIsAWarning(t *testing.T) {
 	}
 }
 
+func TestAPerFileLimitLargerThanTheQuotaIsAWarning(t *testing.T) {
+	cfg := baseConfig(t)
+	cfg.MaxTotalSize = 1 << 20
+	cfg.MaxFileSize = 100 << 20
+	c := find(t, Run(context.Background(), offlineOptions(cfg)), "storage_quota")
+	if c.Status != Warn || !strings.Contains(c.Detail, "larger than the whole quota") {
+		t.Errorf("storage_quota = %+v", c)
+	}
+}
+
 func TestNearlyFullQuotaIsAWarning(t *testing.T) {
 	cfg := baseConfig(t)
 	cfg.MaxTotalSize = 10

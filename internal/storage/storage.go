@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -64,6 +65,15 @@ type Store struct {
 	used  atomic.Int64
 	count atomic.Int64
 
+	// Admission state for uploads in progress. Quota is promised before the
+	// bytes are written and the file is marked until it is committed: without
+	// the promise two concurrent uploads would each spend the same remaining
+	// capacity, and without the mark retention could unlink a file that is
+	// still being streamed.
+	mu       sync.Mutex
+	reserved int64
+	writing  map[string]struct{}
+
 	// Seams, replaced in tests to exercise error paths deterministically.
 	now      func() time.Time
 	randRead func([]byte) (int, error)
@@ -97,6 +107,7 @@ func New(dir string, maxTotal int64) (*Store, error) {
 	s := &Store{
 		root:     root,
 		maxTotal: maxTotal,
+		writing:  make(map[string]struct{}),
 		now:      func() time.Time { return time.Now().UTC() },
 		randRead: rand.Read,
 		finish:   finishFile,
@@ -135,22 +146,19 @@ func (s *Store) Writable() error {
 // ErrTooLarge. When a quota is configured and the write would exceed it, the
 // write is aborted with ErrQuotaExceeded. Partial writes never survive.
 func (s *Store) Create(ext string, r io.Reader, maxSize int64) (*File, error) {
-	limit := maxSize
-	if s.maxTotal > 0 {
-		remaining := s.maxTotal - s.used.Load()
-		if remaining <= 0 {
-			return nil, ErrQuotaExceeded
-		}
-		if remaining < limit {
-			limit = remaining
-		}
+	limit, err := s.reserve(maxSize)
+	if err != nil {
+		return nil, err
 	}
+	defer s.release(limit)
 
 	id, f, err := s.createUnique(ext)
 	if err != nil {
 		return nil, err
 	}
 	path := f.Name()
+	s.startWriting(path)
+	defer s.stopWriting(path)
 
 	// Read one byte past the limit so we can tell "exactly at the limit" from
 	// "over the limit" without buffering the whole body.
@@ -175,6 +183,59 @@ func (s *Store) Create(ext string, r io.Reader, maxSize int64) (*File, error) {
 	s.used.Add(written)
 	s.count.Add(1)
 	return &File{ID: id, Ext: ext, Size: written, Path: path}, nil
+}
+
+// reserve promises want bytes to an upload that is about to start and returns
+// how many it may write. Charging the quota before the bytes exist is what
+// stops concurrent uploads from each spending the last of it: the check and
+// the charge happen together, and the promise is given back in release once
+// the real size is known.
+func (s *Store) reserve(want int64) (int64, error) {
+	if s.maxTotal <= 0 {
+		return want, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	remaining := s.maxTotal - s.used.Load() - s.reserved
+	if remaining <= 0 {
+		return 0, ErrQuotaExceeded
+	}
+	if remaining < want {
+		want = remaining
+	}
+	s.reserved += want
+	return want, nil
+}
+
+// release returns an unused promise. Create calls it after the written bytes
+// have been added to the total, so the accounting never dips below the truth.
+func (s *Store) release(n int64) {
+	if s.maxTotal <= 0 {
+		return
+	}
+	s.mu.Lock()
+	s.reserved -= n
+	s.mu.Unlock()
+}
+
+// startWriting marks a file as being streamed; stopWriting clears the mark.
+func (s *Store) startWriting(path string) {
+	s.mu.Lock()
+	s.writing[path] = struct{}{}
+	s.mu.Unlock()
+}
+
+func (s *Store) stopWriting(path string) {
+	s.mu.Lock()
+	delete(s.writing, path)
+	s.mu.Unlock()
+}
+
+func (s *Store) isWriting(path string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.writing[path]
+	return ok
 }
 
 // createUnique reserves a fresh identifier by creating the target file
@@ -298,8 +359,13 @@ func ValidExt(ext string) bool {
 // MaxExtLen bounds the stored extension length.
 const MaxExtLen = 10
 
-// Cleanup removes files older than age and prunes the directories left empty.
-// It returns the number of files removed and the bytes reclaimed.
+// Cleanup removes uploads older than age and prunes the directories left
+// empty. It returns the number of files removed and the bytes reclaimed.
+//
+// Only recognisable uploads are ever deleted. The service keeps its own state
+// in the same directory — the token database, the telemetry markers — and age
+// alone would eventually sweep those away, revoking every token or quietly
+// turning telemetry back on. Files still being written are left alone too.
 func (s *Store) Cleanup(age time.Duration) (removed int, freed int64, err error) {
 	if age <= 0 {
 		return 0, 0, nil
@@ -316,6 +382,9 @@ func (s *Store) Cleanup(age time.Duration) (removed int, freed int64, err error)
 			}
 			return nil
 		}
+		if !s.isUpload(path, d) || s.isWriting(path) {
+			return nil
+		}
 		info, err := d.Info()
 		if err != nil {
 			return err
@@ -323,7 +392,10 @@ func (s *Store) Cleanup(age time.Duration) (removed int, freed int64, err error)
 		if info.ModTime().After(cutoff) {
 			return nil
 		}
-		if err := os.Remove(path); err != nil {
+		// isUpload has established that this is a regular file at the exact
+		// path its own identifier maps to, so there is no symlink to follow
+		// and nothing outside the tree to reach.
+		if err := os.Remove(path); err != nil { //nolint:gosec // G122
 			return err
 		}
 		removed++
@@ -342,14 +414,29 @@ func (s *Store) Cleanup(age time.Duration) (removed int, freed int64, err error)
 	return removed, freed, nil
 }
 
+// isUpload reports whether the entry is a stored file sitting at the exact
+// path its own identifier maps to. WalkDir reports symbolic links as such
+// rather than following them, and only regular files qualify, so nothing
+// outside the tree can be reached through one.
+func (s *Store) isUpload(path string, d fs.DirEntry) bool {
+	if !d.Type().IsRegular() {
+		return false
+	}
+	id, ext := SplitName(d.Name())
+	return ValidID(id) && ValidExt(ext) && s.pathFor(id, ext) == path
+}
+
 // rescan recomputes the usage counters by walking the tree once at startup.
+// The counters describe stored uploads, so anything else in the tree — the
+// token database, a stray file an operator copied in — is left out of them
+// and reported by `godrop doctor` instead.
 func (s *Store) rescan() error {
 	var files, bytes int64
-	err := filepath.WalkDir(s.root, func(_ string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(s.root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || strings.HasPrefix(d.Name(), ".") {
+		if d.IsDir() || !s.isUpload(path, d) {
 			return nil
 		}
 		info, err := d.Info()

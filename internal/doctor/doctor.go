@@ -151,10 +151,19 @@ func (r *runner) checkConfig() {
 	}
 
 	r.add(g, "max_file_size", Pass, config.FormatSize(cfg.MaxFileSize), "")
-	if cfg.MaxTotalSize == 0 {
+	switch {
+	case cfg.MaxTotalSize == 0:
 		r.add(g, "storage_quota", Warn, "no quota set; uploads can fill the disk",
 			"set GODROP_MAX_TOTAL_SIZE=20GB (leave headroom for the operating system)")
-	} else {
+	case cfg.MaxFileSize > cfg.MaxTotalSize:
+		// An upload holds its share of the quota for as long as it runs, so a
+		// per-file limit larger than the whole quota means one upload in
+		// progress can turn every other one away.
+		r.add(g, "storage_quota", Warn,
+			fmt.Sprintf("the per-file limit (%s) is larger than the whole quota (%s)",
+				config.FormatSize(cfg.MaxFileSize), config.FormatSize(cfg.MaxTotalSize)),
+			"lower GODROP_MAX_FILE_SIZE, or raise GODROP_MAX_TOTAL_SIZE above it")
+	default:
 		r.add(g, "storage_quota", Pass, config.FormatSize(cfg.MaxTotalSize), "")
 	}
 }
