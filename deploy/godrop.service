@@ -1,10 +1,12 @@
 # GoDrop as a systemd service.
 #
 #   sudo useradd --system --home /var/lib/godrop --shell /usr/sbin/nologin godrop
-#   sudo mkdir -p /var/lib/godrop && sudo chown godrop:godrop /var/lib/godrop
-#   sudo install -m 600 -o godrop -g godrop .env /var/lib/godrop/godrop.env
+#   sudo mkdir -p /var/lib/godrop /etc/godrop && sudo chown godrop:godrop /var/lib/godrop
+#   sudo install -m 640 -o root -g godrop .env /etc/godrop/godrop.env
 #   sudo cp deploy/godrop.service /etc/systemd/system/
 #   sudo systemctl daemon-reload && sudo systemctl enable --now godrop
+#
+# The .deb and .rpm packages do all of this for you.
 [Unit]
 Description=GoDrop file host
 Documentation=https://godrop.sh
@@ -15,8 +17,8 @@ Wants=network-online.target
 Type=simple
 User=godrop
 Group=godrop
-EnvironmentFile=/var/lib/godrop/godrop.env
-ExecStart=/usr/local/bin/godrop serve
+EnvironmentFile=/etc/godrop/godrop.env
+ExecStart=/usr/bin/godrop serve
 Restart=on-failure
 RestartSec=2
 

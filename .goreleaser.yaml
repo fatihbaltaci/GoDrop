@@ -1,0 +1,142 @@
+# GoReleaser builds, packages and publishes every release artefact.
+# Validate changes with: goreleaser check && goreleaser release --snapshot --clean
+version: 2
+
+project_name: godrop
+
+before:
+  hooks:
+    - go mod tidy
+    - go mod download
+
+builds:
+  - id: godrop
+    main: ./cmd/godrop
+    binary: godrop
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      # POSTHOG_KEY is injected by the release workflow. It is empty for local
+      # and source builds, which is what keeps them free of telemetry.
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .ShortCommit }}
+      - -X main.date={{ .CommitDate }}
+      - -X main.posthogKey={{ .Env.POSTHOG_KEY }}
+      - -X main.posthogHost={{ .Env.POSTHOG_HOST }}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  # The name template matches what install.sh downloads; changing one means
+  # changing the other.
+  - name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - README.md
+      - LICENSE
+      - SKILL.md
+
+checksum:
+  # install.sh looks for exactly this file.
+  name_template: SHA256SUMS
+  algorithm: sha256
+
+# Linux packages. They install the binary, a hardened systemd unit and a
+# configuration file, and create the unprivileged account the service runs as.
+nfpms:
+  - id: packages
+    package_name: godrop
+    vendor: Fatih Baltacı
+    homepage: https://godrop.sh
+    maintainer: Fatih Baltacı <baltacifatih14@gmail.com>
+    description: |-
+      Upload a file, get a hard-to-guess URL.
+      A tiny self-hosted file host: one binary, no database, files on disk.
+    license: MIT
+    formats: [deb, rpm, apk]
+    bindir: /usr/bin
+    contents:
+      - src: deploy/godrop.service
+        dst: /lib/systemd/system/godrop.service
+      - src: .env.example
+        dst: /etc/godrop/godrop.env
+        type: "config|noreplace"
+        file_info:
+          mode: 0640
+      - src: deploy/Caddyfile
+        dst: /usr/share/doc/godrop/examples/Caddyfile
+      - src: deploy/nginx.conf
+        dst: /usr/share/doc/godrop/examples/nginx.conf
+      - src: SKILL.md
+        dst: /usr/share/doc/godrop/SKILL.md
+    scripts:
+      postinstall: packaging/postinstall.sh
+      preremove: packaging/preremove.sh
+      postremove: packaging/postremove.sh
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+      - "^docs: typo"
+      - Merge pull request
+      - Merge branch
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Security
+      regexp: '^.*?sec(urity)?(\(.+\))??!?:.+$'
+      order: 2
+    - title: Documentation
+      regexp: '^.*?docs(\(.+\))??!?:.+$'
+      order: 3
+    - title: Other
+      order: 99
+
+release:
+  draft: false
+  prerelease: auto
+  footer: |
+    ## Install
+
+    ```bash
+    curl -fsSL https://godrop.sh/install.sh | sh
+    ```
+
+    Or with Docker:
+
+    ```bash
+    docker run -d -p 8080:8080 -e GODROP_TOKENS=$(openssl rand -hex 16) \
+      -v godrop-data:/data ghcr.io/fatihbaltaci/godrop:{{ .Tag }}
+    ```
+
+    Debian and RPM packages are attached below; they set up the systemd service
+    for you. Every archive's checksum is listed in `SHA256SUMS`.
+
+# Uncomment once the tap repository exists (github.com/fatihbaltaci/homebrew-tap)
+# and a token with access to it is available as HOMEBREW_TAP_TOKEN.
+# brews:
+#   - repository:
+#       owner: fatihbaltaci
+#       name: homebrew-tap
+#       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+#     homepage: https://godrop.sh
+#     description: Upload a file, get a hard-to-guess URL
+#     license: MIT
+#     test: |
+#       system "#{bin}/godrop", "version"

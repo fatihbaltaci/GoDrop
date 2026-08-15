@@ -40,6 +40,10 @@ detect_platform() {
 	arch=$(uname -m)
 	case "$os" in
 		linux|darwin) ;;
+		mingw*|msys*|cygwin*)
+			die "this script needs a POSIX shell. On Windows, download the zip from
+    https://github.com/$REPO/releases/latest and put godrop.exe on your PATH,
+    or install from source: go install github.com/$REPO/cmd/godrop@latest" ;;
 		*) die "unsupported operating system: $os (build from source: go install github.com/$REPO/cmd/godrop@latest)" ;;
 	esac
 	case "$arch" in

@@ -7,57 +7,54 @@ on:
 permissions:
   contents: write
   packages: write
+  id-token: write
+  attestations: write
 
 env:
   GO_VERSION: "1.26.x"
-  # PostHog project keys are public by design (they are embedded in client-side
-  # JavaScript), so this is not a secret. It is injected here rather than
-  # compiled in by default so that anything built from source — including
-  # `go install` — reports no telemetry at all.
+  # A PostHog project key is public by design — it ships inside client-side
+  # JavaScript wherever PostHog is used — so this is not a secret. It lives here
+  # rather than in the source so that anything built from source, including
+  # `go install`, reports no telemetry at all.
   POSTHOG_KEY: phc_ntEyQ2Qo4rBXn5vMPmjgKP8geWW3bZ6kaDfZonkYXz47
   POSTHOG_HOST: https://eu.i.posthog.com
 
 jobs:
-  binaries:
-    name: Binaries
+  goreleaser:
+    name: Binaries and packages
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # the changelog needs the full history
+
       - uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
           check-latest: true
 
-      - name: Build every target
-        run: |
-          set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          mkdir -p dist
-          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
-            os="${target%/*}"; arch="${target#*/}"
-            echo "── $os/$arch"
-            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath \
-              -ldflags "-s -w \
-                -X main.version=${GITHUB_REF_NAME} \
-                -X main.commit=${GITHUB_SHA::7} \
-                -X main.date=${date} \
-                -X main.posthogKey=${POSTHOG_KEY} \
-                -X main.posthogHost=${POSTHOG_HOST}" \
-              -o dist/godrop ./cmd/godrop
-            tar -czf "dist/godrop_${version}_${os}_${arch}.tar.gz" -C dist godrop
-            rm dist/godrop
-          done
-          cd dist && sha256sum ./*.tar.gz | sed 's| \./| |' > SHA256SUMS
-          cat SHA256SUMS
+      # A release that ships broken binaries is worse than a late one.
+      - name: Test before releasing
+        run: go test -race -count=1 ./...
 
-      - name: Publish the release
-        uses: softprops/action-gh-release@v2
+      - uses: goreleaser/goreleaser-action@v6
+        id: goreleaser
         with:
-          files: |
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Signed provenance, so anyone can verify an archive really came from this
+      # workflow: gh attestation verify <file> --repo ${{ github.repository }}
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
             dist/*.tar.gz
-            dist/SHA256SUMS
-          generate_release_notes: true
+            dist/*.zip
+            dist/*.deb
+            dist/*.rpm
+            dist/*.apk
 
   image:
     name: Container image
@@ -83,7 +80,8 @@ jobs:
             type=semver,pattern={{major}}
             type=raw,value=latest
 
-      - uses: docker/build-push-action@v6
+      - id: build
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -97,3 +95,9 @@ jobs:
             POSTHOG_HOST=${{ env.POSTHOG_HOST }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/godrop
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true

@@ -12,8 +12,27 @@ env:
   GO_VERSION: "1.26.x"
 
 jobs:
+  # The server is meant for Linux, but the CLI is used wherever people work, so
+  # the suite runs on all three platforms rather than assuming they behave alike.
   test:
-    name: Test
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+
+      - name: Test with the race detector
+        run: go test -race -count=1 ./...
+
+  quality:
+    name: Quality gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -34,8 +53,12 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Test with the race detector
-        run: go test -race -count=1 ./...
+      - name: Vet for other platforms
+        run: |
+          for target in linux/amd64 linux/arm64 darwin/arm64 windows/amd64; do
+            echo "── $target"
+            GOOS=${target%/*} GOARCH=${target#*/} go vet ./...
+          done
 
       # The coverage gate is what keeps the promise honest: every statement in
       # internal/ is executed by a test. cmd/godrop is a three-line wiring shim
@@ -56,6 +79,19 @@ jobs:
         with:
           name: coverage
           path: coverage.out
+
+  vulncheck:
+    name: Vulnerabilities
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+      - uses: golang/govulncheck-action@v1
+        with:
+          go-version-input: ${{ env.GO_VERSION }}
 
   fuzz:
     name: Fuzz
@@ -90,8 +126,42 @@ jobs:
         with:
           version: latest
 
-      - name: Shellcheck the installer
-        run: shellcheck install.sh
+      - name: Shellcheck the installer and package scripts
+        run: shellcheck install.sh packaging/*.sh
+
+  release-config:
+    name: Release config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+
+      # Building every artefact on each change means a tag never fails on
+      # something that could have been caught earlier.
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean
+        env:
+          POSTHOG_KEY: ""
+          POSTHOG_HOST: https://eu.i.posthog.com
+
+      - name: Check the produced artefacts
+        run: |
+          set -euo pipefail
+          ls -1 dist/*.tar.gz dist/*.zip dist/*.deb dist/*.rpm dist/*.apk
+          test -f dist/SHA256SUMS
+          # The installer downloads exactly these names.
+          ls dist/ | grep -qE 'godrop_.*_linux_amd64\.tar\.gz'
+          ls dist/ | grep -qE 'godrop_.*_darwin_arm64\.tar\.gz'
+          ls dist/ | grep -qE 'godrop_.*_windows_amd64\.zip'
+          dpkg -c dist/*_linux_amd64.deb | grep -q '/usr/bin/godrop'
+          dpkg -c dist/*_linux_amd64.deb | grep -q 'godrop.service'
 
   docker:
     name: Docker

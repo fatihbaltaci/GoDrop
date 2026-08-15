@@ -57,10 +57,15 @@ run: ## Run a development server on port 48080 with a throwaway token
 	GODROP_TELEMETRY=off \
 	go run ./cmd/godrop serve
 
+.PHONY: snapshot
+snapshot: ## Build every release artefact locally, without publishing
+	POSTHOG_KEY="" POSTHOG_HOST="https://eu.i.posthog.com" goreleaser release --snapshot --clean
+	@ls -1 dist/*.tar.gz dist/*.zip dist/*.deb dist/*.rpm dist/*.apk
+
 .PHONY: docker
 docker: ## Build the container image locally
 	docker build -t godrop:dev --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) .
 
 .PHONY: clean
 clean: ## Remove build output and local data
-	rm -rf bin coverage.out data
+	rm -rf bin dist coverage.out data
