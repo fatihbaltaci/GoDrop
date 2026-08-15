@@ -51,6 +51,21 @@ Being explicit about this is more useful than a longer list of features.
 
 These come up often enough to write down.
 
+**TLS is off by default.** GoDrop runs on loopback, on a LAN and over
+Tailscale as often as on a public address, and on those a certificate is
+neither obtainable nor useful. On a public address it is one variable:
+`GODROP_TLS=auto` gets a Let's Encrypt certificate and renews it, and
+`GODROP_TLS_CERT` with `GODROP_TLS_KEY` uses one you already have. Whichever
+you choose, the private material stays on the machine: the ACME account key
+and the certificates live in `<data dir>/acme`, created `0700`, and `godrop
+doctor` reports a key other users can read, as well as how many days are left
+before the certificate expires.
+
+**A certificate is refused for a name it cannot cover.** An address, a
+`.local` name, `localhost` or a wildcard is reported at startup with the
+reason, instead of failing in a retry loop against Let's Encrypt and running
+into their rate limit.
+
 **Tokens are hashed, not encrypted.** A digest cannot be turned back into a
 working token, and unlike machine-bound encryption, `tokens.json` still
 works after being restored onto another host. A plain SHA-256 is right here
@@ -103,7 +118,8 @@ you only ever call GoDrop from your own front end.
 `godrop doctor` checks most of this and prints the command that fixes each
 item.
 
-- [ ] A reverse proxy in front, terminating TLS, with `GODROP_BASE_URL` on `https`
+- [ ] TLS on, and `GODROP_BASE_URL` on `https`: either `GODROP_TLS=auto`,
+      your own certificate in `GODROP_TLS_CERT`, or a proxy that terminates it
 - [ ] `GODROP_MAX_TOTAL_SIZE` set, and larger than `GODROP_MAX_FILE_SIZE`
 - [ ] `GODROP_RATE_LIMIT` set if the instance is reachable from the internet
 - [ ] Data directory `0700`, owned by the service user (the `.deb` and `.rpm`

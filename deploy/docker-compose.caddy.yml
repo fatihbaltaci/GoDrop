@@ -13,7 +13,7 @@ services:
     restart: unless-stopped
     env_file: ../.env
     expose:
-      - "8080"
+      - "8747"
     volumes:
       - godrop-data:/data
     healthcheck:

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/fatihbaltaci/GoDrop/internal/server"
 	"github.com/fatihbaltaci/GoDrop/internal/storage"
 	"github.com/fatihbaltaci/GoDrop/internal/telemetry"
+	"github.com/fatihbaltaci/GoDrop/internal/tlsconf"
 	"github.com/fatihbaltaci/GoDrop/internal/tokens"
 )
 
@@ -32,8 +34,10 @@ learn and the same settings work under systemd, Docker and a bare shell. See
 .env.example for the annotated list, or run "godrop doctor" to see what the
 current environment actually resolves to.
 
-Plain http is fine on loopback, on a private network or over Tailscale. Put a
-reverse proxy in front for TLS on a public address.`,
+Plain http is fine on loopback, on a private network or over Tailscale. On a
+public address, GODROP_TLS=auto gets a certificate from Let's Encrypt and
+renews it, and GODROP_TLS_CERT with GODROP_TLS_KEY uses one you already have.
+Neither needs a reverse proxy.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error { return runServe(cmd, build) },
 	}
@@ -115,12 +119,35 @@ func runServe(cmd *cobra.Command, build Build) error {
 
 	logStartup(logger, cfg, store, tokenStore, build)
 
+	tlsSrv, err := tlsconf.New(cfg)
+	if err != nil {
+		return err
+	}
+	httpSrv.TLSConfig = tlsSrv.TLSConfig
+
 	errCh := make(chan error, 1)
 	go func() {
-		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := listen(httpSrv, tlsSrv); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
 	}()
+
+	// Port 80 answers the certificate challenge and sends everyone to https.
+	// It is a second server, so shutting down still waits for both.
+	var challenge *http.Server
+	if tlsSrv.Enabled() && cfg.HTTPAddr != "" {
+		challenge = &http.Server{
+			Addr:              cfg.HTTPAddr,
+			Handler:           tlsSrv.Challenge,
+			ReadHeaderTimeout: cfg.ReadHeaderTimeout,
+			ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelWarn),
+		}
+		go func() {
+			if err := challenge.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				logger.Warn("the http listener stopped", "addr", cfg.HTTPAddr, "err", err.Error())
+			}
+		}()
+	}
 
 	select {
 	case err := <-errCh:
@@ -131,10 +158,23 @@ func runServe(cmd *cobra.Command, build Build) error {
 	logger.Info("shutting down", "timeout", cfg.ShutdownTimeout.String())
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
+	if challenge != nil {
+		_ = challenge.Shutdown(shutdownCtx)
+	}
 	if err := tokenStore.Flush(); err != nil {
 		logger.Warn("could not save token usage", "err", err.Error())
 	}
 	return httpSrv.Shutdown(shutdownCtx)
+}
+
+// listen serves with or without TLS. ListenAndServeTLS takes the certificate
+// files when they came from disk, and empty strings when the TLS config
+// already carries the certificate, which is how autocert supplies it.
+func listen(srv *http.Server, t *tlsconf.Server) error {
+	if !t.Enabled() {
+		return srv.ListenAndServe()
+	}
+	return srv.ListenAndServeTLS(t.CertFile, t.KeyFile)
 }
 
 // newLogger writes to the command's output, which is os.Stdout in production
@@ -151,6 +191,7 @@ func logStartup(logger *slog.Logger, cfg *config.Config, store *storage.Store, t
 	files, bytes := store.Stats()
 	attrs := []any{
 		"addr", cfg.Addr,
+		"tls", tlsDescription(cfg),
 		"version", build.Version,
 		"data_dir", store.Root(),
 		"files", files,
@@ -168,6 +209,18 @@ func logStartup(logger *slog.Logger, cfg *config.Config, store *storage.Store, t
 		attrs = append(attrs, "retention", cfg.Retention.String())
 	}
 	logger.Info("godrop listening", attrs...)
+}
+
+// tlsDescription is what the startup line says about the certificate.
+func tlsDescription(cfg *config.Config) string {
+	switch cfg.TLS {
+	case config.TLSAuto:
+		return "automatic (" + strings.Join(cfg.TLSDomains, ", ") + ")"
+	case config.TLSFile:
+		return cfg.TLSCert
+	default:
+		return "off"
+	}
 }
 
 // runCleanup deletes expired files on a timer when retention is configured.

@@ -122,7 +122,8 @@ release:
     Or with Docker:
 
     ```bash
-    docker run -d -p 8080:8080 -e GODROP_TOKENS=$(openssl rand -hex 16) \
+    docker run -d --name godrop --restart always -p 8747:8747 \
+      -e GODROP_TOKENS=$(openssl rand -hex 16) \
       -v godrop-data:/data ghcr.io/fatihbaltaci/godrop:{{ .Tag }}
     ```
 

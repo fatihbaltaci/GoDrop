@@ -2,6 +2,26 @@ package wizard
 
 import "runtime"
 
+// defaultTLS is what the certificate question starts on: automatic whenever
+// Let's Encrypt could issue for the name, since that is the answer that needs
+// no further work from anyone. An answer that was given already, on the
+// command line, is left alone.
+func defaultTLS(a Answers) string {
+	switch {
+	case a.TLS != "":
+		return a.TLS
+	case CanAutoTLS(a.BaseURL):
+		return TLSAuto
+	case a.BaseURL == "":
+		// A local run, where a certificate is neither wanted nor possible.
+		return TLSNone
+	default:
+		// A name Let's Encrypt cannot issue for, so something in front of
+		// GoDrop is the likeliest arrangement.
+		return TLSProxy
+	}
+}
+
 // Option is one choice offered by a Select prompt.
 type Option struct {
 	Label string
@@ -54,9 +74,29 @@ func Run(p Prompter, a Answers) (Answers, error) {
 		return a, err
 	}
 
-	p.Section("Service", "How GoDrop should run on this machine.")
-	if a.Port, err = p.Input("Listen port", "The port GoDrop binds to locally.", a.Port, ValidatePort); err != nil {
+	p.Section("HTTPS", "How this server gets a certificate.")
+	if a.TLS, err = p.Select("Certificate", "", TLSOptions(a.BaseURL), defaultTLS(a)); err != nil {
 		return a, err
+	}
+	if a.TLS == TLSFile {
+		if a.TLSCert, err = p.Input("Certificate file",
+			"The full chain, in PEM. Certbot calls it fullchain.pem.",
+			a.TLSCert, ValidateFile); err != nil {
+			return a, err
+		}
+		if a.TLSKey, err = p.Input("Private key file",
+			"In PEM, and readable only by the service. Certbot calls it privkey.pem.",
+			a.TLSKey, ValidateFile); err != nil {
+			return a, err
+		}
+	}
+
+	p.Section("Service", "How GoDrop should run on this machine.")
+	// Serving TLS fixes the ports at 443 and 80, so there is nothing to ask.
+	if !ServesTLS(a) {
+		if a.Port, err = p.Input("Listen port", "The port GoDrop binds to locally.", a.Port, ValidatePort); err != nil {
+			return a, err
+		}
 	}
 	if a.Deployment, err = p.Select("Deployment style", "",
 		DeploymentOptions(runtime.GOOS), a.Deployment); err != nil {

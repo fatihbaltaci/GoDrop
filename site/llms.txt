@@ -78,9 +78,24 @@ Every command accepts `--json` and prints nothing but the document in that
 mode. Colour and prompts switch themselves off without a terminal, so an
 agent never gets stuck on a form.
 
+## HTTPS
+
+GoDrop can serve https itself, so a public install needs no reverse proxy:
+
+```bash
+GODROP_TLS=auto
+GODROP_BASE_URL=https://files.example.com
+```
+
+It gets a certificate from Let's Encrypt on the first request, keeps it in
+`<data dir>/acme` and renews it. Ports 443 and 80 must be reachable; with
+`GODROP_HTTP_ADDR=off` the certificate is issued over 443 alone. A certificate
+you already have goes in `GODROP_TLS_CERT` and `GODROP_TLS_KEY`. Behind a
+proxy, or on a private network, leave TLS off.
+
 ## Running it
 
-- Docker: `docker run -v godrop-data:/data ghcr.io/fatihbaltaci/godrop`
+- Docker: `docker run -d --name godrop --restart always -v godrop-data:/data ghcr.io/fatihbaltaci/godrop`
 - A VPS: one binary, a hardened systemd unit, `.deb`, `.rpm` and `.apk`
   packages
 - Fly.io, Railway, Render: ready-made manifests, each with a volume
@@ -89,8 +104,9 @@ agent never gets stuck on a form.
 
 Configuration is entirely environment variables: `GODROP_TOKENS`,
 `GODROP_BASE_URL`, `GODROP_DATA_DIR`, `GODROP_MAX_FILE_SIZE`,
-`GODROP_MAX_TOTAL_SIZE`, `GODROP_RETENTION`, `GODROP_RATE_LIMIT` and a few
-more, all listed in the README.
+`GODROP_MAX_TOTAL_SIZE`, `GODROP_RETENTION`, `GODROP_RATE_LIMIT`, `GODROP_TLS`
+and a few more, all listed in the README. The default listen address is
+`:8747`, or `:443` when TLS is on.
 
 ## Links
 

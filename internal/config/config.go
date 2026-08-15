@@ -16,7 +16,16 @@ import (
 
 // Defaults applied when the corresponding environment variable is unset.
 const (
-	DefaultAddr               = ":8080"
+	// 8080 is the busiest port on any developer machine, and a service that
+	// refuses to start because something else got there first is a bad first
+	// impression. This one is unlikely to be taken and is outside the range
+	// Linux hands out for outgoing connections.
+	DefaultAddr = ":8747"
+	// With TLS on, the ports are the ones a browser expects: 443 serves, and
+	// 80 answers the certificate challenge and redirects.
+	DefaultTLSAddr  = ":443"
+	DefaultHTTPAddr = ":80"
+
 	DefaultDataDir            = "./data"
 	DefaultMaxFileSize        = 100 << 20 // 100MB
 	DefaultMaxFilesPerRequest = 20
@@ -36,6 +45,17 @@ type Config struct {
 	DataDir string
 	BaseURL string
 	Tokens  []string
+
+	// TLS. Mode is off, auto or file; see ParseTLSMode.
+	TLS         TLSMode
+	TLSDomains  []string
+	TLSCert     string
+	TLSKey      string
+	TLSEmail    string
+	TLSCacheDir string
+	// HTTPAddr serves the ACME challenge and redirects to https. Empty
+	// disables it, which leaves autocert to answer over TLS-ALPN on 443.
+	HTTPAddr string
 
 	MaxFileSize        int64
 	MaxFilesPerRequest int
@@ -158,6 +178,8 @@ func LoadFrom(env Getenv) (*Config, error) {
 	}
 
 	cfg.CORSOrigins = ParseList(str(env, "GODROP_CORS_ORIGINS", DefaultCORSOrigins))
+
+	cfg.loadTLS(env, fail)
 
 	cfg.LogFormat = strings.ToLower(str(env, "GODROP_LOG_FORMAT", DefaultLogFormat))
 	if cfg.LogFormat != "json" && cfg.LogFormat != "text" {

@@ -198,6 +198,19 @@
     </div>
   </div>
 
+  <h2>HTTPS, without a proxy</h2>
+  <p>
+    On a public domain GoDrop gets its own certificate from Let's Encrypt and
+    renews it. Two lines, no Caddy, no nginx, no certbot:
+  </p>
+<pre><code>GODROP_TLS=auto
+GODROP_BASE_URL=https://files.example.com</code></pre>
+  <p class="note">
+    Already have a certificate? Point <code>GODROP_TLS_CERT</code> and
+    <code>GODROP_TLS_KEY</code> at it instead. Behind a proxy or on a private
+    network, leave TLS off and nothing changes.
+  </p>
+
   <h2>What it does</h2>
   <div class="grid">
     <div class="card"><b>Unguessable URLs</b><span>128 random bits per file. No listing endpoint, by design.</span></div>
@@ -205,6 +218,7 @@
     <div class="card"><b>Public downloads</b><span>Uploads and deletes need a token; reading never does.</span></div>
     <div class="card"><b>Real limits</b><span>Size, quota, retention and rate limits, all configurable.</span></div>
     <div class="card"><b>Agent-native</b><span>Every command speaks <code>--json</code>; the server serves <code>/llms.txt</code>.</span></div>
+    <div class="card"><b>HTTPS built in</b><span><code>GODROP_TLS=auto</code> and the certificate looks after itself.</span></div>
     <div class="card"><b>Diagnosable</b><span><code>godrop doctor</code> checks storage, firewall, TLS and reachability.</span></div>
   </div>
 
@@ -231,7 +245,7 @@ gh skill install fatihbaltaci/GoDrop godrop --scope user</code></pre>
 
   <h2>Run it anywhere</h2>
   <ul>
-    <li><strong>Docker</strong>: <code>docker run -v godrop-data:/data ghcr.io/fatihbaltaci/godrop</code></li>
+    <li><strong>Docker</strong>: <code>docker run -d --name godrop --restart always -v godrop-data:/data ghcr.io/fatihbaltaci/godrop</code></li>
     <li><strong>A plain VPS</strong>: one binary and a hardened systemd unit</li>
     <li><strong>Fly.io, Railway, Render</strong>: ready-made manifests, each with a volume</li>
   </ul>

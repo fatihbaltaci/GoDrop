@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fatihbaltaci/GoDrop/internal/config"
 	"github.com/fatihbaltaci/GoDrop/internal/tokens"
 )
 
@@ -525,7 +526,7 @@ func TestHealthCommandFailures(t *testing.T) {
 
 func TestLocalHealthURL(t *testing.T) {
 	cases := map[string]string{
-		"":              "http://127.0.0.1:8080/healthz",
+		"":              "http://127.0.0.1" + config.DefaultAddr + "/healthz",
 		":9000":         "http://127.0.0.1:9000/healthz",
 		"0.0.0.0:9000":  "http://127.0.0.1:9000/healthz",
 		"127.0.0.1:123": "http://127.0.0.1:123/healthz",

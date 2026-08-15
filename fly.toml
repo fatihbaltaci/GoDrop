@@ -15,7 +15,7 @@ primary_region = "fra"
 
 [env]
   GODROP_DATA_DIR = "/data"
-  GODROP_ADDR = ":8080"
+  GODROP_ADDR = ":8747"
   GODROP_MAX_FILE_SIZE = "100MB"
   GODROP_MAX_TOTAL_SIZE = "9GB"   # leave headroom on a 10GB volume
 
@@ -24,7 +24,7 @@ primary_region = "fra"
   destination = "/data"
 
 [http_service]
-  internal_port = 8080
+  internal_port = 8747
   force_https = true
   # A stopped machine cannot serve a download link, and a public URL is
   # expected to work at any time, so keep at least one machine running.

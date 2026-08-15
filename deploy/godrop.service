@@ -32,6 +32,11 @@ ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
 RestrictAddressFamilies=AF_INET AF_INET6
+
+# Binding 443 and 80 as an unprivileged user, for GODROP_TLS=auto or a
+# certificate of your own. Harmless when GoDrop listens on a high port.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 RestrictNamespaces=true
 LockPersonality=true
 MemoryDenyWriteExecute=true

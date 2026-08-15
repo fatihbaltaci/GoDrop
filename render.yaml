@@ -18,7 +18,7 @@ services:
       - key: GODROP_DATA_DIR
         value: /data
       - key: GODROP_ADDR
-        value: :8080
+        value: :8747
       - key: GODROP_MAX_FILE_SIZE
         value: 100MB
       - key: GODROP_MAX_TOTAL_SIZE

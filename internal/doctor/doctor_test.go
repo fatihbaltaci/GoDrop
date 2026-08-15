@@ -2,10 +2,16 @@ package doctor
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"io"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1400,5 +1406,170 @@ func requirePOSIXModes(t *testing.T) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("file modes are not POSIX bits on Windows")
+	}
+}
+
+// ------------------------------------------------------------- certificates
+
+// writeCert writes a certificate and key valid until notAfter.
+func writeCert(t *testing.T, dir string, notAfter time.Time) (certFile, keyFile string) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "files.example.com"},
+		DNSNames:     []string{"files.example.com"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     notAfter,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certFile = filepath.Join(dir, "fullchain.pem")
+	keyFile = filepath.Join(dir, "privkey.pem")
+	for _, w := range []struct {
+		path  string
+		block *pem.Block
+	}{
+		{certFile, &pem.Block{Type: "CERTIFICATE", Bytes: der}},
+		{keyFile, &pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}},
+	} {
+		if err := os.WriteFile(w.path, pem.EncodeToMemory(w.block), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return certFile, keyFile
+}
+
+func TestCertificateExpiryIsReportedBeforeItBites(t *testing.T) {
+	cases := []struct {
+		name   string
+		expiry time.Duration
+		want   Status
+		detail string
+	}{
+		{"healthy", 60 * 24 * time.Hour, Pass, "valid until"},
+		{"renewal is overdue", 3 * 24 * time.Hour, Warn, "expires in 3 days"},
+		{"expired", -time.Hour, Fail, "expired on"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := baseConfig(t)
+			cfg.TLS = config.TLSFile
+			cfg.TLSCert, cfg.TLSKey = writeCert(t, t.TempDir(), time.Now().Add(tc.expiry))
+
+			got := find(t, Run(context.Background(), offlineOptions(cfg)), "tls_cert")
+			if got.Status != tc.want || !strings.Contains(got.Detail, tc.detail) {
+				t.Errorf("tls_cert = %s (%q), want %s mentioning %q", got.Status, got.Detail, tc.want, tc.detail)
+			}
+			if perms := find(t, Run(context.Background(), offlineOptions(cfg)), "tls_key_perms"); perms.Status != Pass {
+				t.Errorf("tls_key_perms = %s (%q)", perms.Status, perms.Detail)
+			}
+		})
+	}
+}
+
+func TestAPrivateKeyOthersCanReadIsReported(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes are advisory on Windows")
+	}
+	cfg := baseConfig(t)
+	cfg.TLS = config.TLSFile
+	cfg.TLSCert, cfg.TLSKey = writeCert(t, t.TempDir(), time.Now().Add(60*24*time.Hour))
+	if err := os.Chmod(cfg.TLSKey, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := find(t, Run(context.Background(), offlineOptions(cfg)), "tls_key_perms")
+	if got.Status != Warn || !strings.Contains(got.Fix, "chmod 600") {
+		t.Errorf("tls_key_perms = %s (%q), fix %q", got.Status, got.Detail, got.Fix)
+	}
+}
+
+func TestAnUnusableCertificateIsReported(t *testing.T) {
+	dir := t.TempDir()
+	rubbish := filepath.Join(dir, "fullchain.pem")
+	if err := os.WriteFile(rubbish, []byte("hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := baseConfig(t)
+	cfg.TLS = config.TLSFile
+	cfg.TLSCert, cfg.TLSKey = rubbish, rubbish
+
+	got := find(t, Run(context.Background(), offlineOptions(cfg)), "tls_cert")
+	if got.Status != Fail || !strings.Contains(got.Fix, "GODROP_TLS_CERT") {
+		t.Errorf("tls_cert = %s (%q)", got.Status, got.Detail)
+	}
+}
+
+func TestTheAutomaticCertificateCacheIsChecked(t *testing.T) {
+	cfg := baseConfig(t)
+	cfg.TLS = config.TLSAuto
+	cfg.TLSDomains = []string{"files.example.com"}
+	cfg.TLSCacheDir = filepath.Join(cfg.DataDir, "acme")
+
+	// Before the first start there is no cache, which is expected.
+	got := find(t, Run(context.Background(), offlineOptions(cfg)), "tls_cache")
+	if got.Status != Warn || !strings.Contains(got.Detail, "no certificate cached") {
+		t.Errorf("tls_cache = %s (%q)", got.Status, got.Detail)
+	}
+
+	if err := os.MkdirAll(cfg.TLSCacheDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	got = find(t, Run(context.Background(), offlineOptions(cfg)), "tls_cache")
+	if got.Status != Pass || !strings.Contains(got.Detail, "files.example.com") {
+		t.Errorf("tls_cache = %s (%q)", got.Status, got.Detail)
+	}
+}
+
+func TestACacheThatCannotBeWrittenToIsAFailure(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("file modes are advisory here")
+	}
+	cfg := baseConfig(t)
+	cfg.TLS = config.TLSAuto
+	cfg.TLSDomains = []string{"files.example.com"}
+	cfg.TLSCacheDir = filepath.Join(cfg.DataDir, "acme")
+	if err := os.MkdirAll(cfg.TLSCacheDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(cfg.TLSCacheDir, 0o700) })
+
+	got := find(t, Run(context.Background(), offlineOptions(cfg)), "tls_cache")
+	if got.Status != Fail || !strings.Contains(got.Fix, "GODROP_TLS_CACHE_DIR") {
+		t.Errorf("tls_cache = %s (%q), fix %q", got.Status, got.Detail, got.Fix)
+	}
+}
+
+func TestServingHTTPSWithAnHTTPBaseURLIsReported(t *testing.T) {
+	// Every URL GoDrop hands out comes from the base URL, so this one
+	// mismatch breaks every link it returns.
+	cfg := baseConfig(t)
+	cfg.BaseURL = "http://files.example.com"
+	cfg.TLS = config.TLSAuto
+	cfg.TLSDomains = []string{"files.example.com"}
+	cfg.TLSCacheDir = filepath.Join(cfg.DataDir, "acme")
+
+	got := find(t, Run(context.Background(), offlineOptions(cfg)), "https")
+	if got.Status != Fail || !strings.Contains(got.Fix, "https://files.example.com") {
+		t.Errorf("https = %s (%q), fix %q", got.Status, got.Detail, got.Fix)
+	}
+}
+
+func TestPlainHTTPOnAPublicAddressSuggestsAutomaticTLS(t *testing.T) {
+	cfg := baseConfig(t)
+	cfg.BaseURL = "http://files.example.com"
+
+	got := find(t, Run(context.Background(), offlineOptions(cfg)), "https")
+	if got.Status != Fail || !strings.Contains(got.Fix, "GODROP_TLS=auto") {
+		t.Errorf("https = %s (%q), fix %q", got.Status, got.Detail, got.Fix)
 	}
 }

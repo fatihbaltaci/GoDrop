@@ -9,7 +9,7 @@ services:
     restart: unless-stopped
     env_file: .env
     ports:
-      - "8080:8080"
+      - "8747:8747"
     volumes:
       - godrop-data:/data
     healthcheck:

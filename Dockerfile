@@ -46,10 +46,10 @@ COPY --from=build /godrop /godrop
 COPY --from=build --chown=nonroot:nonroot /data /data
 
 ENV GODROP_DATA_DIR=/data \
-    GODROP_ADDR=:8080
+    GODROP_ADDR=:8747
 
 USER nonroot:nonroot
-EXPOSE 8080
+EXPOSE 8747
 VOLUME ["/data"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \

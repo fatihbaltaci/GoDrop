@@ -124,7 +124,7 @@ func TestEnvFileContainsEverythingNeededToRun(t *testing.T) {
 		"GODROP_TOKENS=gd_secret",
 		"GODROP_BASE_URL=https://files.example.com",
 		"GODROP_DATA_DIR=/var/lib/godrop",
-		"GODROP_ADDR=:8080",
+		"GODROP_ADDR=:" + Defaults().Port,
 		"GODROP_MAX_FILE_SIZE=100MB",
 		"GODROP_MAX_TOTAL_SIZE=20GB",
 	} {
@@ -158,7 +158,7 @@ func TestComposeUsesAVolumeSoDataSurvives(t *testing.T) {
 	if !strings.Contains(compose, "env_file: .env") {
 		t.Error("the compose file should read the generated .env")
 	}
-	if !strings.Contains(compose, `"8080:8080"`) {
+	if !strings.Contains(compose, `"`+Defaults().Port+`:`+Defaults().Port+`"`) {
 		t.Error("the chosen port should be published")
 	}
 	if !strings.Contains(compose, "healthcheck") {
@@ -221,7 +221,7 @@ func TestCaddyfileRaisesTheBodyLimit(t *testing.T) {
 	if !strings.Contains(caddy, "max_size 250MB") {
 		t.Error("the proxy body limit must match the upload limit, or large uploads fail before reaching GoDrop")
 	}
-	if !strings.Contains(caddy, "reverse_proxy 127.0.0.1:8080") {
+	if !strings.Contains(caddy, "reverse_proxy 127.0.0.1:"+Defaults().Port) {
 		t.Error("the proxy should forward to the local service")
 	}
 }
@@ -425,7 +425,7 @@ func TestCurlExamplesAreReadyToRun(t *testing.T) {
 
 	a.BaseURL = ""
 	local := strings.Join(CurlExamplesFor("linux", a), "\n")
-	if !strings.Contains(local, "http://localhost:8080/upload") {
+	if !strings.Contains(local, "http://localhost:"+Defaults().Port+"/upload") {
 		t.Errorf("without a base URL the examples should target localhost:\n%s", local)
 	}
 
@@ -510,7 +510,7 @@ func TestRunCollectsEveryAnswer(t *testing.T) {
 	dataDir := filepath.Join(absDir, "custom")
 	p := &scriptedPrompter{
 		inputs:   []string{"https://files.example.com", dataDir, "250MB", "50GB", "30d", "9000"},
-		selects:  []string{DeploySystemd},
+		selects:  []string{TLSNone, DeploySystemd},
 		confirms: []bool{false, false},
 	}
 	got, err := Run(p, Defaults())
@@ -520,18 +520,18 @@ func TestRunCollectsEveryAnswer(t *testing.T) {
 	want := Answers{
 		BaseURL: "https://files.example.com", DataDir: dataDir,
 		MaxFileSize: "250MB", MaxTotalSize: "50GB", Retention: "30d",
-		Port: "9000", Deployment: DeploySystemd,
+		Port: "9000", Deployment: DeploySystemd, TLS: TLSNone,
 	}
 	if got.BaseURL != want.BaseURL || got.DataDir != want.DataDir || got.MaxFileSize != want.MaxFileSize ||
 		got.MaxTotalSize != want.MaxTotalSize || got.Retention != want.Retention ||
-		got.Port != want.Port || got.Deployment != want.Deployment {
+		got.Port != want.Port || got.Deployment != want.Deployment || got.TLS != want.TLS {
 		t.Errorf("answers = %+v, want %+v", got, want)
 	}
 	if got.Telemetry || got.ExternalCheck {
 		t.Error("both confirmations answered no")
 	}
-	if len(p.sections) != 4 {
-		t.Errorf("sections = %v, want the wizard grouped into four steps", p.sections)
+	if len(p.sections) != 5 {
+		t.Errorf("sections = %v, want the wizard grouped into five steps", p.sections)
 	}
 }
 
@@ -562,9 +562,9 @@ func TestRunStopsAtTheFirstFailure(t *testing.T) {
 
 func TestRunPropagatesCancellationAtEveryStep(t *testing.T) {
 	t.Parallel()
-	// Eight questions: base URL, data dir, max file, quota, retention, port,
-	// deployment, telemetry, external check.
-	for stage := range 9 {
+	// Ten questions: base URL, data dir, max file, quota, retention,
+	// certificate, port, deployment, telemetry, external check.
+	for stage := range 10 {
 		p := &scriptedPrompter{err: errCancelledForTest, failAfter: stage}
 		if _, err := Run(p, Defaults()); err == nil {
 			t.Fatalf("a cancelled prompt at step %d must abort the wizard", stage)
@@ -661,5 +661,173 @@ func TestPlatformWrappersUseThisHost(t *testing.T) {
 	}
 	if got, want := CurlExamples(a), CurlExamplesFor(runtime.GOOS, a); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("CurlExamples should render for this platform:\n%v\n%v", got, want)
+	}
+}
+
+// ---------------------------------------------------------------- HTTPS
+
+func TestAutomaticTLSIsOfferedOnlyForAPublicName(t *testing.T) {
+	t.Parallel()
+	// Let's Encrypt cannot issue for an address or for a private name, and
+	// offering it there would only produce a failure later.
+	public := []string{"https://files.example.com", "http://files.example.com", "https://a.b.example.org"}
+	for _, url := range public {
+		if !CanAutoTLS(url) {
+			t.Errorf("CanAutoTLS(%q) = false, want it offered", url)
+		}
+		if TLSOptions(url)[0].Value != TLSAuto {
+			t.Errorf("%s: automatic should be the first option", url)
+		}
+	}
+	private := []string{"", "https://192.0.2.10", "https://localhost:8747", "https://nas.local",
+		"https://laptop.tail1234.ts.net", "https://godrop.internal", "://nonsense"}
+	for _, url := range private {
+		if CanAutoTLS(url) {
+			t.Errorf("CanAutoTLS(%q) = true, want it left out", url)
+		}
+		for _, o := range TLSOptions(url) {
+			if o.Value == TLSAuto {
+				t.Errorf("%s: automatic should not be offered", url)
+			}
+		}
+	}
+}
+
+func TestTheCertificateQuestionStartsOnTheEasiestAnswer(t *testing.T) {
+	t.Parallel()
+	a := Defaults()
+	a.BaseURL = "https://files.example.com"
+	if got := defaultTLS(a); got != TLSAuto {
+		t.Errorf("defaultTLS = %q, want automatic for a public name", got)
+	}
+	a.BaseURL = ""
+	if got := defaultTLS(a); got != TLSNone {
+		t.Errorf("defaultTLS = %q, want none without a URL", got)
+	}
+	a.BaseURL = "https://nas.local"
+	if got := defaultTLS(a); got != TLSProxy {
+		t.Errorf("defaultTLS = %q, want a proxy for a name Let's Encrypt cannot issue for", got)
+	}
+	a.TLS = TLSFile
+	if got := defaultTLS(a); got != TLSFile {
+		t.Errorf("defaultTLS = %q, want an explicit answer respected", got)
+	}
+}
+
+func TestServingTLSFixesThePorts(t *testing.T) {
+	t.Parallel()
+	a := Defaults()
+	a.BaseURL = "https://files.example.com"
+	a.TLS = TLSAuto
+
+	if !ServesTLS(a) || ListenPort(a) != "443" {
+		t.Errorf("with automatic TLS, GoDrop listens on 443, got %q", ListenPort(a))
+	}
+	env := EnvFile(a)
+	for _, want := range []string{"GODROP_ADDR=:443", "GODROP_TLS=auto", "GODROP_TLS_DOMAINS=files.example.com"} {
+		if !strings.Contains(env, want) {
+			t.Errorf(".env should contain %q:\n%s", want, env)
+		}
+	}
+	compose := ComposeFile(a)
+	for _, want := range []string{`"443:443"`, `"80:80"`} {
+		if !strings.Contains(compose, want) {
+			t.Errorf("compose should publish %s, since the challenge arrives on 80:\n%s", want, compose)
+		}
+	}
+	// An unprivileged service cannot bind 443 without being allowed to.
+	unit := SystemdUnit(a, "")
+	if !strings.Contains(unit, "AmbientCapabilities=CAP_NET_BIND_SERVICE") {
+		t.Errorf("the unit needs the capability to bind 443:\n%s", unit)
+	}
+
+	a.TLS = TLSNone
+	if ServesTLS(a) || ListenPort(a) != a.Port {
+		t.Errorf("without TLS the chosen port is used, got %q", ListenPort(a))
+	}
+	if strings.Contains(SystemdUnit(a, ""), "AmbientCapabilities") {
+		t.Error("a service on a high port needs no capability")
+	}
+	if strings.Contains(EnvFile(a), "GODROP_TLS") {
+		t.Error("nothing about TLS should be written when there is none")
+	}
+}
+
+func TestYourOwnCertificateIsWrittenOut(t *testing.T) {
+	t.Parallel()
+	a := Defaults()
+	a.TLS = TLSFile
+	a.TLSCert = "/etc/letsencrypt/live/files.example.com/fullchain.pem"
+	a.TLSKey = "/etc/letsencrypt/live/files.example.com/privkey.pem"
+	env := EnvFile(a)
+	if !strings.Contains(env, "GODROP_TLS_CERT="+a.TLSCert) || !strings.Contains(env, "GODROP_TLS_KEY="+a.TLSKey) {
+		t.Errorf(".env should name both files:\n%s", env)
+	}
+}
+
+func TestValidateFile(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cert := filepath.Join(dir, "fullchain.pem")
+	if err := os.WriteFile(cert, []byte("-----BEGIN CERTIFICATE-----"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateFile(cert); err != nil {
+		t.Errorf("ValidateFile = %v", err)
+	}
+	for _, bad := range []string{"", "  ", "relative/cert.pem", filepath.Join(dir, "not-there"), dir} {
+		if err := ValidateFile(bad); err == nil {
+			t.Errorf("ValidateFile(%q) = nil, want an error", bad)
+		}
+	}
+}
+
+func TestRunAsksForACertificateWhenYouBringYourOwn(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cert, key := filepath.Join(dir, "fullchain.pem"), filepath.Join(dir, "privkey.pem")
+	for _, f := range []string{cert, key} {
+		if err := os.WriteFile(f, []byte("-----BEGIN-----"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p := &scriptedPrompter{
+		inputs:  []string{"https://files.example.com", absDir, "100MB", "", "", cert, key},
+		selects: []string{TLSFile, DeploySystemd},
+	}
+	got, err := Run(p, Defaults())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got.TLSCert != cert || got.TLSKey != key {
+		t.Errorf("answers = %+v, want both files recorded", got)
+	}
+	// Terminating TLS means the ports are decided, so the wizard does not ask.
+	for _, label := range p.labels {
+		if label == "Listen port" {
+			t.Error("the listen port should not be asked when GoDrop serves 443")
+		}
+	}
+}
+
+func TestRunPropagatesCancellationWhileAskingForTheCertificate(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cert, key := filepath.Join(dir, "fullchain.pem"), filepath.Join(dir, "privkey.pem")
+	for _, f := range []string{cert, key} {
+		if err := os.WriteFile(f, []byte("-----BEGIN-----"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Stage 6 aborts on the certificate, stage 7 on the key.
+	for stage := 6; stage <= 7; stage++ {
+		p := &scriptedPrompter{
+			inputs:  []string{"https://files.example.com", absDir, "100MB", "", "", cert, key},
+			selects: []string{TLSFile, DeploySystemd},
+			err:     errCancelledForTest, failAfter: stage,
+		}
+		if _, err := Run(p, Defaults()); err == nil {
+			t.Fatalf("a cancelled prompt at step %d must abort the wizard", stage)
+		}
 	}
 }

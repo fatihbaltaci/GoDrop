@@ -35,6 +35,9 @@ type Answers struct {
 	MaxTotalSize  string
 	Retention     string
 	Deployment    string
+	TLS           string // see TLSOptions
+	TLSCert       string
+	TLSKey        string
 	TokenName     string
 	Token         string // generated; shown once, never re-read from disk
 	Telemetry     bool
@@ -46,7 +49,7 @@ type Answers struct {
 func Defaults() Answers {
 	return Answers{
 		DataDir:       DefaultDataDir(runtime.GOOS, os.Getenv),
-		Port:          "8080",
+		Port:          strings.TrimPrefix(config.DefaultAddr, ":"),
 		MaxFileSize:   "100MB",
 		MaxTotalSize:  "20GB",
 		Retention:     "",
@@ -56,6 +59,72 @@ func Defaults() Answers {
 		ExternalCheck: true,
 		Image:         "ghcr.io/fatihbaltaci/godrop:latest",
 	}
+}
+
+// How the certificate is obtained. These are the wizard's own names for it;
+// the configuration they produce is described in SECURITY.md.
+const (
+	TLSAuto  = "auto"  // GoDrop gets one from Let's Encrypt and renews it
+	TLSFile  = "file"  // a certificate the operator already has
+	TLSProxy = "proxy" // something in front terminates TLS
+	TLSNone  = "none"  // plain http, which is right on a private network
+)
+
+// TLSOptions offers the ways to get https, in the order most people want
+// them. Automatic only appears for a public name, because Let's Encrypt
+// cannot issue a certificate for an address or for something.local.
+func TLSOptions(baseURL string) []Option {
+	auto := Option{
+		Label: "automatic, from Let's Encrypt (recommended)",
+		Value: TLSAuto,
+		Desc:  "GoDrop obtains the certificate and renews it. Needs ports 80 and 443, and a domain pointing here.",
+	}
+	rest := []Option{
+		{Label: "I have a certificate", Value: TLSFile,
+			Desc: "A certificate and key on disk, from certbot, your own CA or your cloud provider."},
+		{Label: "something in front handles it", Value: TLSProxy,
+			Desc: "Caddy, nginx, a load balancer or Cloudflare terminates TLS and forwards to GoDrop."},
+		{Label: "none, plain http", Value: TLSNone,
+			Desc: "Right on your own machine, a home network or Tailscale. Not on a public address."},
+	}
+	if CanAutoTLS(baseURL) {
+		return append([]Option{auto}, rest...)
+	}
+	return rest
+}
+
+// CanAutoTLS reports whether Let's Encrypt could issue for this base URL.
+func CanAutoTLS(baseURL string) bool {
+	// The same rule the server enforces at startup, so the wizard never
+	// offers an answer that would fail to start.
+	return config.ValidTLSDomain(hostOf(baseURL)) == nil
+}
+
+func hostOf(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
+}
+
+// ServesTLS reports whether GoDrop itself terminates TLS, which fixes the
+// ports it listens on: 443 for traffic and 80 for the certificate challenge
+// and the redirect.
+func ServesTLS(a Answers) bool { return a.TLS == TLSAuto || a.TLS == TLSFile }
+
+// needsProxy reports whether the setup relies on something in front of GoDrop
+// for TLS, which is the only case where a proxy configuration is worth writing.
+func needsProxy(a Answers) bool {
+	return !ServesTLS(a) && strings.HasPrefix(a.BaseURL, "https://")
+}
+
+// ListenPort is the port GoDrop binds to.
+func ListenPort(a Answers) string {
+	if ServesTLS(a) {
+		return "443"
+	}
+	return a.Port
 }
 
 // DefaultDataDir is where uploads live on each platform: the usual place for
@@ -164,6 +233,41 @@ func ValidateDir(s string) error {
 	return nil
 }
 
+// writeTLS records how the certificate is obtained, and says nothing at all
+// when something else is terminating TLS.
+func writeTLS(b *strings.Builder, a Answers) {
+	switch a.TLS {
+	case TLSAuto:
+		writeEnv(b, "GODROP_TLS", "auto", "obtain and renew a certificate from Let's Encrypt")
+		writeEnv(b, "GODROP_TLS_DOMAINS", hostOf(a.BaseURL), "the names the certificate covers")
+		b.WriteString("# GODROP_TLS_EMAIL=you@example.com   # optional, for expiry warnings from Let's Encrypt\n")
+	case TLSFile:
+		writeEnv(b, "GODROP_TLS_CERT", a.TLSCert, "certificate chain, PEM")
+		writeEnv(b, "GODROP_TLS_KEY", a.TLSKey, "private key, PEM")
+	}
+}
+
+// ValidateFile requires a path to something readable. A certificate that
+// turns out not to be there is much better caught here than at the first
+// request, when nobody is watching.
+func ValidateFile(s string) error {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return errors.New("required")
+	}
+	if !filepath.IsAbs(s) {
+		return errors.New("use an absolute path so the service finds it whatever its working directory is")
+	}
+	info, err := os.Stat(s)
+	if err != nil {
+		return errors.New("cannot read it: " + err.Error())
+	}
+	if info.IsDir() {
+		return errors.New("that is a directory")
+	}
+	return nil
+}
+
 // ValidatePort requires a TCP port number.
 func ValidatePort(s string) error {
 	s = strings.TrimSpace(s)
@@ -186,7 +290,8 @@ func EnvFile(a Answers) string {
 	writeEnv(&b, "GODROP_TOKENS", a.Token, "API tokens, comma separated")
 	writeEnv(&b, "GODROP_BASE_URL", a.BaseURL, "public URL; leave empty to derive it from the request")
 	writeEnv(&b, "GODROP_DATA_DIR", a.dataDirForRuntime(), "where uploaded files live")
-	writeEnv(&b, "GODROP_ADDR", ":"+a.Port, "listen address")
+	writeEnv(&b, "GODROP_ADDR", ":"+ListenPort(a), "listen address")
+	writeTLS(&b, a)
 	b.WriteString("\n")
 	writeEnv(&b, "GODROP_MAX_FILE_SIZE", a.MaxFileSize, "per-file limit")
 	writeEnv(&b, "GODROP_MAX_TOTAL_SIZE", a.MaxTotalSize, "total storage quota; empty means unlimited")
@@ -227,8 +332,7 @@ services:
     restart: unless-stopped
     env_file: .env
     ports:
-      - "%s:%s"
-    volumes:
+%s    volumes:
       - %s:/data
     healthcheck:
       test: ["CMD", "/godrop", "health"]
@@ -236,7 +340,29 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
-`, a.Image, a.Port, a.Port, a.DataDir)
+`, a.Image, composePorts(a), a.DataDir)
+}
+
+// systemdCapabilities grants the one capability an unprivileged service needs
+// to bind 443 and 80. Without it the unit starts as the godrop user and then
+// fails with "permission denied", which is a confusing way to learn that
+// ports below 1024 are privileged.
+func systemdCapabilities(a Answers) string {
+	if !ServesTLS(a) {
+		return ""
+	}
+	return "\n# Binding 443 and 80 as an unprivileged user, and nothing else.\n" +
+		"AmbientCapabilities=CAP_NET_BIND_SERVICE\n" +
+		"CapabilityBoundingSet=CAP_NET_BIND_SERVICE\n"
+}
+
+// composePorts publishes what the deployment actually needs: 443 and 80 when
+// GoDrop is doing TLS itself, because a certificate challenge arrives on 80.
+func composePorts(a Answers) string {
+	if ServesTLS(a) {
+		return "      - \"443:443\"\n      - \"80:80\"\n"
+	}
+	return fmt.Sprintf("      - \"%s:%s\"\n", a.Port, a.Port)
 }
 
 // SystemdUnit renders a hardened service unit.
@@ -277,10 +403,10 @@ RestrictNamespaces=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
 ReadWritePaths=%s
-
+%s
 [Install]
 WantedBy=multi-user.target
-`, path.Join(a.DataDir, "godrop.env"), binaryPath, a.DataDir)
+`, path.Join(a.DataDir, "godrop.env"), binaryPath, a.DataDir, systemdCapabilities(a))
 }
 
 // Caddyfile renders a reverse proxy with automatic TLS, including the body size
@@ -325,7 +451,10 @@ func Files(a Answers, binaryPath string) []GeneratedFile {
 		files = append(files,
 			GeneratedFile{Name: "godrop.service", Body: SystemdUnit(a, binaryPath), Perm: 0o644})
 	}
-	if a.BaseURL != "" && strings.HasPrefix(a.BaseURL, "https://") {
+	// A proxy configuration is only worth writing when something else is
+	// terminating TLS. GoDrop doing it itself is the whole point of the
+	// automatic and file answers.
+	if needsProxy(a) {
 		files = append(files, GeneratedFile{Name: "Caddyfile", Body: Caddyfile(a), Perm: 0o644})
 	}
 	return files
@@ -380,7 +509,7 @@ func NextStepsFor(goos string, a Answers) []string {
 			steps = append(steps, "set -a && . ./.env && set +a", "godrop serve")
 		}
 	}
-	if a.BaseURL != "" && strings.HasPrefix(a.BaseURL, "https://") {
+	if needsProxy(a) {
 		steps = append(steps, "sudo caddy run --config Caddyfile   # or: sudo systemctl reload caddy")
 	}
 	steps = append(steps, "godrop doctor   # verify storage, firewall, TLS and reachability")

@@ -8,12 +8,14 @@ package doctor
 
 import (
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -24,6 +26,7 @@ import (
 	"github.com/fatihbaltaci/GoDrop/internal/config"
 	"github.com/fatihbaltaci/GoDrop/internal/netcheck"
 	"github.com/fatihbaltaci/GoDrop/internal/storage"
+	"github.com/fatihbaltaci/GoDrop/internal/tlsconf"
 	"github.com/fatihbaltaci/GoDrop/internal/tokens"
 )
 
@@ -310,6 +313,7 @@ func (r *runner) checkSecurity() {
 
 	r.checkEnvFile()
 
+	r.checkTLS(g)
 	r.checkTransport(g)
 
 	for _, o := range r.Config.CORSOrigins {
@@ -325,6 +329,72 @@ func (r *runner) checkSecurity() {
 			"run as an unprivileged user; the systemd unit in deploy/ already does")
 	} else if uid > 0 {
 		r.add(g, "privileges", Pass, fmt.Sprintf("uid=%d", uid), "")
+	}
+}
+
+// renewalWindow is how long before expiry a certificate is worth mentioning.
+// Let's Encrypt renews at 30 days, so anything inside 14 means renewal has
+// been failing for a fortnight and nobody noticed.
+const renewalWindow = 14 * 24 * time.Hour
+
+// checkTLS looks at the certificate GoDrop serves itself. An expired
+// certificate is the classic three in the morning outage, and it is entirely
+// predictable, so doctor says how many days are left.
+func (r *runner) checkTLS(g string) {
+	switch r.Config.TLS {
+	case config.TLSFile:
+		r.checkCertFile(g)
+	case config.TLSAuto:
+		// Without a usable cache every restart asks Let's Encrypt for a new
+		// certificate, and their rate limit stops that within a day.
+		if err := tlsconf.CheckCache(r.Config.TLSCacheDir); err != nil {
+			if os.IsNotExist(err) {
+				r.add(g, "tls_cache", Warn, "no certificate cached yet at "+r.Config.TLSCacheDir,
+					"normal before the first start; after that it means the certificate is fetched again on every restart")
+				return
+			}
+			r.add(g, "tls_cache", Fail, err.Error(),
+				"GoDrop must be able to write "+r.Config.TLSCacheDir+", or set GODROP_TLS_CACHE_DIR somewhere it can")
+			return
+		}
+		r.add(g, "tls_cache", Pass, "automatic certificates for "+
+			strings.Join(r.Config.TLSDomains, ", ")+", cached in "+r.Config.TLSCacheDir, "")
+	case config.TLSOff:
+	}
+}
+
+// checkCertFile reports on a certificate the operator supplied.
+func (r *runner) checkCertFile(g string) {
+	pair, err := tls.LoadX509KeyPair(r.Config.TLSCert, r.Config.TLSKey)
+	if err != nil {
+		r.add(g, "tls_cert", Fail, err.Error(),
+			"check GODROP_TLS_CERT and GODROP_TLS_KEY; the certificate must be the full chain in PEM")
+		return
+	}
+	// LoadX509KeyPair parses the leaf on the way in, so there is nothing left
+	// that can fail here.
+	left := pair.Leaf.NotAfter.Sub(r.now())
+	days := int(math.Ceil(left.Hours() / 24))
+	day := pair.Leaf.NotAfter.Format("2006-01-02")
+	switch {
+	case left <= 0:
+		r.add(g, "tls_cert", Fail, "the certificate expired on "+day,
+			"renew it (certbot renew), or switch to GODROP_TLS=auto and let GoDrop keep it current")
+	case left < renewalWindow:
+		r.add(g, "tls_cert", Warn,
+			fmt.Sprintf("the certificate expires in %d days, on %s", days, day),
+			"check that renewal is running: systemctl list-timers | grep certbot")
+	default:
+		r.add(g, "tls_cert", Pass, fmt.Sprintf("valid until %s (%d days)", day, days), "")
+	}
+
+	if info, err := os.Stat(r.Config.TLSKey); err == nil {
+		if perm := info.Mode().Perm(); perm&0o077 != 0 {
+			r.add(g, "tls_key_perms", Warn, fmt.Sprintf("%s is %#o and readable by other users", r.Config.TLSKey, perm),
+				"chmod 600 "+r.Config.TLSKey)
+		} else {
+			r.add(g, "tls_key_perms", Pass, fmt.Sprintf("%#o", perm), "")
+		}
 	}
 }
 
@@ -344,6 +414,13 @@ func (r *runner) checkTransport(g string) {
 		r.add(g, "https", Pass, "TLS in use", "")
 		return
 	}
+	if r.Config.TLS != config.TLSOff {
+		// The links GoDrop hands out come from the base URL, so this one
+		// mismatch makes every upload URL fail to load.
+		r.add(g, "https", Fail, "GoDrop serves https, but GODROP_BASE_URL still says http://",
+			"change it to "+strings.Replace(base, "http://", "https://", 1))
+		return
+	}
 	u, err := url.Parse(base)
 	if err != nil {
 		return // the base_url check has already reported this
@@ -359,7 +436,8 @@ func (r *runner) checkTransport(g string) {
 			"fine on a network you trust. For TLS on a private name, put Caddy in front with a certificate from your own CA")
 	default:
 		r.add(g, "https", Fail, "GODROP_BASE_URL uses plain http on a public address; tokens travel in clear text",
-			"put Caddy or nginx in front for automatic TLS (see deploy/Caddyfile)")
+			"turn on TLS: GODROP_TLS=auto (GoDrop gets a Let's Encrypt certificate itself), "+
+				"or point GODROP_TLS_CERT and GODROP_TLS_KEY at one you have")
 	}
 }
 

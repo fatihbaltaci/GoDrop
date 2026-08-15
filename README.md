@@ -51,13 +51,16 @@ checks that the internet can actually reach you.
 Other ways:
 
 ```bash
-# Docker
-docker run -d -p 8080:8080 \
+# Docker: comes back up after a reboot, and after a crash
+docker run -d --name godrop --restart always \
+  -p 8747:8747 \
   -e GODROP_TOKENS=$(openssl rand -hex 16) \
   -v godrop-data:/data \
   ghcr.io/fatihbaltaci/godrop
 
-# Debian or Ubuntu: installs the systemd service and creates its user
+# Debian or Ubuntu: installs the systemd service and creates its user.
+# Download the .deb for your architecture from the releases page:
+# https://github.com/fatihbaltaci/GoDrop/releases/latest
 sudo dpkg -i godrop_1.0.0_linux_amd64.deb
 
 # Fedora, RHEL or openSUSE
@@ -66,6 +69,11 @@ sudo rpm -i godrop_1.0.0_linux_amd64.rpm
 # From source (Go 1.26+). Binaries built this way send no telemetry at all.
 go install github.com/fatihbaltaci/GoDrop/cmd/godrop@latest
 ```
+
+Every package, archive and checksum is on the [releases
+page](https://github.com/fatihbaltaci/GoDrop/releases/latest), and the
+container image is at
+[ghcr.io/fatihbaltaci/godrop](https://github.com/fatihbaltaci/GoDrop/pkgs/container/godrop).
 
 ### Platforms
 
@@ -98,8 +106,9 @@ $ godrop init
   ? Maximum file size       100MB
   ? Storage quota           20GB
   ? Delete files after      (never)
+  HTTPS
+  ? Certificate             automatic, from Let's Encrypt
   Service
-  ? Listen port             8080
   ? Deployment style        docker compose
   Finishing up
   ? Anonymous heartbeat     yes
@@ -108,7 +117,6 @@ $ godrop init
   Written
   ✓ .env  (chmod 600, contains your token)
   ✓ docker-compose.yml
-  ✓ Caddyfile
 
   Your API token
   ┌────────────────────────────────────────┐
@@ -117,10 +125,15 @@ $ godrop init
   ⚠ shown once and never again, so copy it now
 
   Verifying
-  ✓ 127.0.0.1:8080        listening
+  ✓ 127.0.0.1:443         listening
   ✓ firewall              ufw allows port 443
   ✓ external access       reachable (HTTP 200, from FRA)
 ```
+
+Answering "automatic" is all HTTPS takes: GoDrop gets the certificate itself
+and renews it, so there is no proxy to install and nothing to configure. The
+question only offers it for a name Let's Encrypt can actually issue for, and
+the listen port question disappears, because serving TLS means 443.
 
 Every question shows its default and can be answered with a flag instead, so CI
 and agents run the same code path without a terminal. Prompts are skipped
@@ -255,8 +268,10 @@ learn and the same settings work under systemd, Docker and a bare shell. See
 .env.example for the annotated list, or run "godrop doctor" to see what the
 current environment actually resolves to.
 
-Plain http is fine on loopback, on a private network or over Tailscale. Put a
-reverse proxy in front for TLS on a public address.
+Plain http is fine on loopback, on a private network or over Tailscale. On a
+public address, GODROP_TLS=auto gets a certificate from Let's Encrypt and
+renews it, and GODROP_TLS_CERT with GODROP_TLS_KEY uses one you already have.
+Neither needs a reverse proxy.
 
 Usage:
   godrop serve [flags]
@@ -298,10 +313,13 @@ Flags:
       --no-external-check       do not ask godrop.sh to verify reachability
       --no-input                never prompt; use flags and defaults (for CI and agents)
       --out-dir string          where to write the generated files (default: working directory)
-      --port string             listen port (default "8080")
+      --port string             listen port (default "8747")
       --retention string        delete files after this long, e.g. 30d
       --start                   start the service when setup finishes
       --telemetry               send the anonymous daily heartbeat (default true)
+      --tls string              auto (Let's Encrypt), file, proxy or none
+      --tls-cert string         certificate chain in PEM, with --tls=file
+      --tls-key string          private key in PEM, with --tls=file
       --token-name string       name for the generated token (default "default")
 
 Global Flags:
@@ -642,8 +660,14 @@ durations accept `30d`, `12h`, `90m`; rates accept `60/m`, `10/s`, `100/h`.
 | --- | --- | --- |
 | `GODROP_TOKENS` | *(required)* | Comma-separated API tokens |
 | `GODROP_BASE_URL` | *(from request)* | Public URL used in responses |
-| `GODROP_ADDR` | `:8080` | Listen address |
+| `GODROP_ADDR` | `:8747` (`:443` with TLS) | Listen address |
 | `GODROP_DATA_DIR` | `./data` | Where files live (`/data` in the image) |
+| `GODROP_TLS` | `off` | `auto` for Let's Encrypt, `file` for your own certificate |
+| `GODROP_TLS_DOMAINS` | *(from base URL)* | Names to get a certificate for |
+| `GODROP_TLS_EMAIL` | *(none)* | Expiry warnings from Let's Encrypt |
+| `GODROP_TLS_CACHE_DIR` | `<data dir>/acme` | Account key and certificates |
+| `GODROP_TLS_CERT` / `GODROP_TLS_KEY` | *(none)* | Full chain and key, in PEM |
+| `GODROP_HTTP_ADDR` | `:80` with TLS | Redirect and challenge listener, `off` to disable |
 | `GODROP_MAX_FILE_SIZE` | `100MB` | Per-file limit → `413` |
 | `GODROP_MAX_FILES_PER_REQUEST` | `20` | Files per multipart request |
 | `GODROP_MAX_TOTAL_SIZE` | *(unlimited)* | Storage quota → `507` |
@@ -761,14 +785,14 @@ can read the traffic that is the right choice rather than a compromise:
 
 ```bash
 GODROP_TOKENS=$(openssl rand -hex 16) \
-GODROP_BASE_URL=http://localhost:8080 \
+GODROP_BASE_URL=http://localhost:8747 \
 godrop serve
 ```
 
 Set `GODROP_BASE_URL` to whatever the client will actually type, because that
-is what the returned URLs are built from: `http://localhost:8080`,
-`http://100.101.102.103:8080` for a Tailscale address, or
-`http://nas.local:8080` on a home network. Leave it unset and the URL is
+is what the returned URLs are built from: `http://localhost:8747`,
+`http://100.101.102.103:8747` for a Tailscale address, or
+`http://nas.local:8747` on a home network. Leave it unset and the URL is
 derived from the request, which also works.
 
 `godrop doctor` judges plain http by who could be listening. Loopback and
@@ -776,15 +800,17 @@ Tailscale pass, because nothing readable leaves the machine in the first case
 and the connection is already encrypted in the second. A LAN address warns:
 tokens are readable by anything else on that network. A public address fails.
 
-### A VPS with automatic TLS
+### A public server
 
 ```bash
 curl -fsSL https://godrop.sh/install.sh | sh    # installs and runs `godrop init`
-# then, for a container setup with Caddy in front:
-docker compose -f deploy/docker-compose.caddy.yml up -d
 ```
 
-`deploy/` also holds [`nginx.conf`](deploy/nginx.conf) and a hardened
+The wizard asks how you want the certificate, and "GoDrop gets one for me" is
+the first answer. See [HTTPS](#https) below for what each answer does.
+
+`deploy/` holds a [Caddy](deploy/Caddyfile) and an [nginx](deploy/nginx.conf)
+configuration for anyone who wants a proxy anyway, and a hardened
 [`godrop.service`](deploy/godrop.service) for systemd. Whichever proxy you use,
 **raise its body size limit** to match `GODROP_MAX_FILE_SIZE`. `godrop doctor`
 tests this for you.
@@ -814,6 +840,61 @@ on the next deploy.
 Use [`render.yaml`](render.yaml) as a blueprint. The persistent disk requires a
 paid instance and pins the service to one instance, because GoDrop stores files
 on local disk and does not scale horizontally, by design.
+
+## HTTPS
+
+GoDrop can serve https itself, so a public install needs no proxy at all:
+
+```bash
+GODROP_TLS=auto
+GODROP_BASE_URL=https://files.example.com
+```
+
+That is the whole configuration. On the first request GoDrop gets a
+certificate from Let's Encrypt, keeps it in `<data dir>/acme` and renews it
+long before it expires. Port 443 must be reachable, and port 80 with it: it
+answers the challenge and redirects anyone who typed `http://`. If 80 is
+unavailable, set `GODROP_HTTP_ADDR=off` and the certificate is still issued
+over 443 alone, through `acme-tls/1`.
+
+Already have a certificate, from certbot, your company CA or your cloud
+provider? Name the two files and nothing else changes:
+
+```bash
+GODROP_TLS_CERT=/etc/letsencrypt/live/files.example.com/fullchain.pem
+GODROP_TLS_KEY=/etc/letsencrypt/live/files.example.com/privkey.pem
+```
+
+`godrop doctor` then reports how many days that certificate has left, and
+whether anyone else on the machine can read the key.
+
+In Docker it is the same two variables and the two ports:
+
+```bash
+docker run -d --name godrop --restart always \
+  -p 443:443 -p 80:80 \
+  -e GODROP_TOKENS=$(openssl rand -hex 16) \
+  -e GODROP_TLS=auto \
+  -e GODROP_BASE_URL=https://files.example.com \
+  -v godrop-data:/data \
+  ghcr.io/fatihbaltaci/godrop
+```
+
+| Your situation | Setting |
+| --- | --- |
+| Public domain, nothing in front | `GODROP_TLS=auto` |
+| A certificate you already have | `GODROP_TLS_CERT` and `GODROP_TLS_KEY` |
+| Caddy, nginx, Traefik or a cloud load balancer in front | leave TLS off |
+| Loopback, a LAN, Tailscale, a private network | leave TLS off |
+
+Turning TLS on moves the listener to `:443` and starts a second one on `:80`,
+unless you set `GODROP_ADDR` or `GODROP_HTTP_ADDR` yourself. Under systemd
+that needs `AmbientCapabilities=CAP_NET_BIND_SERVICE`, which the shipped unit
+already has; in Docker, publish `-p 443:443 -p 80:80`.
+
+A certificate can only be issued for a public name that resolves to this
+machine. `nas.local`, `10.0.0.5` and a Tailscale name are all refused at
+startup, with the reason, rather than failing in a retry loop afterwards.
 
 ## For AI agents
 

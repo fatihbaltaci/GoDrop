@@ -55,15 +55,19 @@ func TestInitNonInteractiveWritesEverything(t *testing.T) {
 		t.Error("the next steps should be part of the machine-readable output")
 	}
 
-	// Compose deployment with an https base URL writes three files.
+	// A public URL selects automatic TLS, so GoDrop terminates it itself and
+	// there is no proxy configuration to write.
 	names := map[string]bool{}
 	for _, f := range got.Files {
 		names[filepath.Base(f)] = true
 	}
-	for _, want := range []string{".env", "docker-compose.yml", "Caddyfile"} {
+	for _, want := range []string{".env", "docker-compose.yml"} {
 		if !names[want] {
 			t.Errorf("%s was not written, got %v", want, got.Files)
 		}
+	}
+	if names["Caddyfile"] {
+		t.Errorf("a Caddyfile is pointless when GoDrop serves https itself: %v", got.Files)
 	}
 
 	env, err := os.ReadFile(filepath.Join(outDir, ".env"))

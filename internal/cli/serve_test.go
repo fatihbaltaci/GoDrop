@@ -3,9 +3,17 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"io"
 	"log/slog"
+	"math/big"
 	"net"
 	"net/http"
 	"os"
@@ -456,5 +464,167 @@ func TestLoggerFormats(t *testing.T) {
 	}
 	if newLogger(&config.Config{LogFormat: "json"}, io.Discard) == nil {
 		t.Error("a JSON logger should be created")
+	}
+}
+
+// ------------------------------------------------------------------- HTTPS
+
+// selfSignedCert writes a certificate and key, standing in for whatever
+// certbot or a company CA would have left on disk.
+func selfSignedCert(t *testing.T, dir string) (certFile, keyFile string) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "localhost"},
+		DNSNames:     []string{"localhost"},
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certFile = filepath.Join(dir, "fullchain.pem")
+	keyFile = filepath.Join(dir, "privkey.pem")
+	write := func(path string, block *pem.Block) {
+		if err := os.WriteFile(path, pem.EncodeToMemory(block), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: der})
+	write(keyFile, &pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	return certFile, keyFile
+}
+
+func TestServeOverHTTPSWithYourOwnCertificate(t *testing.T) {
+	const token = "gd_a1b2c3d4e5f60718293a4b5c6d7e8f90"
+	certDir := t.TempDir()
+	certFile, keyFile := selfSignedCert(t, certDir)
+	plain := freePort(t)
+
+	base, stop := serveInBackground(t, token, map[string]string{
+		"GODROP_TLS_CERT":  certFile,
+		"GODROP_TLS_KEY":   keyFile,
+		"GODROP_HTTP_ADDR": plain,
+	})
+	defer stop()
+
+	client := &http.Client{Transport: &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // a self-signed certificate made by this test
+	}}
+	httpsURL := "https://" + strings.TrimPrefix(base, "http://")
+	resp, err := client.Get(httpsURL + "/healthz")
+	if err != nil {
+		t.Fatalf("the server is not answering over https: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("healthz = %d", resp.StatusCode)
+	}
+
+	// Port 80 exists only to send people to https.
+	waitForListener(t, plain)
+	noRedirects := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	moved, err := noRedirects.Get("http://" + plain + "/f/x.jpg")
+	if err != nil {
+		t.Fatalf("the plain listener is not answering: %v", err)
+	}
+	defer moved.Body.Close()
+	if moved.StatusCode != http.StatusFound {
+		t.Errorf("status = %d, want a redirect to https", moved.StatusCode)
+	}
+	if got := moved.Header.Get("Location"); !strings.HasPrefix(got, "https://") {
+		t.Errorf("Location = %q", got)
+	}
+}
+
+func TestServeStopsWhenTheCertificateCannotBeRead(t *testing.T) {
+	dir := t.TempDir()
+	broken := filepath.Join(dir, "fullchain.pem")
+	if err := os.WriteFile(broken, []byte("not a certificate"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GODROP_DATA_DIR", t.TempDir())
+	t.Setenv("GODROP_TOKENS", "gd_a1b2c3d4e5f60718293a4b5c6d7e8f90")
+	t.Setenv("GODROP_ADDR", freePort(t))
+	t.Setenv("GODROP_TLS_CERT", broken)
+	t.Setenv("GODROP_TLS_KEY", broken)
+
+	var out bytes.Buffer
+	if code := ExecuteWith(context.Background(), testBuild(), []string{"serve"}, io.Discard, &out); code == 0 {
+		t.Fatal("serve should refuse to start with a certificate it cannot read")
+	}
+	if !strings.Contains(out.String(), "read the certificate") {
+		t.Errorf("output = %q, want it to say what is wrong", out.String())
+	}
+}
+
+func TestTLSDescription(t *testing.T) {
+	cases := []struct {
+		cfg  config.Config
+		want string
+	}{
+		{config.Config{}, "off"},
+		{config.Config{TLS: config.TLSFile, TLSCert: "/etc/ssl/fullchain.pem"}, "/etc/ssl/fullchain.pem"},
+		{config.Config{TLS: config.TLSAuto, TLSDomains: []string{"a.example.com", "b.example.com"}},
+			"automatic (a.example.com, b.example.com)"},
+	}
+	for _, tc := range cases {
+		if got := tlsDescription(&tc.cfg); got != tc.want {
+			t.Errorf("tlsDescription(%q) = %q, want %q", tc.cfg.TLS, got, tc.want)
+		}
+	}
+}
+
+func TestServeKeepsRunningWhenPort80IsTaken(t *testing.T) {
+	// Losing the redirect listener is worth a warning, not a shutdown: https
+	// still works, and the certificate can still be renewed over 443.
+	const token = "gd_a1b2c3d4e5f60718293a4b5c6d7e8f90"
+	certFile, keyFile := selfSignedCert(t, t.TempDir())
+	addr := freePort(t)
+
+	taken, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer taken.Close()
+
+	t.Setenv("GODROP_DATA_DIR", t.TempDir())
+	t.Setenv("GODROP_TOKENS", token)
+	t.Setenv("GODROP_ADDR", addr)
+	t.Setenv("GODROP_LOG_FORMAT", "text")
+	t.Setenv("GODROP_TLS_CERT", certFile)
+	t.Setenv("GODROP_TLS_KEY", keyFile)
+	t.Setenv("GODROP_HTTP_ADDR", taken.Addr().String())
+
+	logs := &safeBuffer{}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan int, 1)
+	go func() { done <- ExecuteWith(ctx, testBuild(), []string{"serve"}, logs, io.Discard) }()
+	defer func() {
+		cancel()
+		if code := <-done; code != 0 {
+			t.Errorf("serve exited with %d", code)
+		}
+	}()
+	waitForListener(t, addr)
+
+	deadline := time.Now().Add(10 * time.Second)
+	for !strings.Contains(logs.String(), "the http listener stopped") {
+		if time.Now().After(deadline) {
+			t.Fatalf("the failed listener was never reported:\n%s", logs.String())
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }

@@ -125,6 +125,9 @@ are skipped automatically when there is no terminal.`,
 	f.StringVar(&answers.MaxFileSize, "max-file-size", answers.MaxFileSize, "per-file limit, e.g. 100MB")
 	f.StringVar(&answers.MaxTotalSize, "max-total-size", answers.MaxTotalSize, "storage quota, empty for unlimited")
 	f.StringVar(&answers.Retention, "retention", answers.Retention, "delete files after this long, e.g. 30d")
+	f.StringVar(&answers.TLS, "tls", answers.TLS, "auto (Let's Encrypt), file, proxy or none")
+	f.StringVar(&answers.TLSCert, "tls-cert", answers.TLSCert, "certificate chain in PEM, with --tls=file")
+	f.StringVar(&answers.TLSKey, "tls-key", answers.TLSKey, "private key in PEM, with --tls=file")
 	f.StringVar(&answers.Deployment, "deployment", answers.Deployment, "compose, systemd or env")
 	f.StringVar(&answers.TokenName, "token-name", answers.TokenName, "name for the generated token")
 	f.BoolVar(&answers.Telemetry, "telemetry", answers.Telemetry, "send the anonymous daily heartbeat")
@@ -203,7 +206,7 @@ func maybeStart(ctx context.Context, out *output, a wizard.Answers, forceStart b
 func verify(ctx context.Context, out *output, a wizard.Answers) {
 	out.heading("Verifying")
 
-	local := "127.0.0.1:" + a.Port
+	local := "127.0.0.1:" + wizard.ListenPort(a)
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 
@@ -260,7 +263,9 @@ func verify(ctx context.Context, out *output, a wizard.Answers) {
 		}
 		out.fail("%-22s not reachable: %s", "external access", msg)
 		out.hint("open port %d in your cloud provider's firewall (AWS security group, Hetzner firewall, GCP rule)", port)
-		out.hint("and check that your reverse proxy forwards to 127.0.0.1:%s", a.Port)
+		if !wizard.ServesTLS(a) {
+			out.hint("and check that your reverse proxy forwards to 127.0.0.1:%s", a.Port)
+		}
 	}
 }
 
@@ -276,7 +281,7 @@ func printFinish(out *output, a wizard.Answers) {
 	out.printf("\n  Point an AI agent at it with two values:\n")
 	base := a.BaseURL
 	if base == "" {
-		base = "http://localhost:" + a.Port
+		base = "http://localhost:" + wizard.ListenPort(a)
 	}
 	out.command("GODROP_URL=" + base)
 	out.command("GODROP_TOKEN=" + a.Token)
