@@ -121,3 +121,28 @@ jobs:
           subject-name: ghcr.io/${{ github.repository_owner }}/godrop
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+
+  # pkg.go.dev only hears about a version when something asks the module proxy
+  # for it. Asking here means the documentation is ready before anyone follows
+  # the badge, instead of hours later or never.
+  proxy:
+    name: Module proxy
+    needs: goreleaser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+      - name: Ask the proxy for this version
+        run: |
+          mkdir -p "$RUNNER_TEMP/warm"
+          cd "$RUNNER_TEMP/warm"
+          go mod init warm
+          # Fetching it the way a user would proves the module is usable as a
+          # dependency, and registers the version with the proxy and the
+          # checksum database on the way past.
+          go get "github.com/$GITHUB_REPOSITORY@$GITHUB_REF_NAME"
+        env:
+          GOPROXY: https://proxy.golang.org
+          GOSUMDB: sum.golang.org
