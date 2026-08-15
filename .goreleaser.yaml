@@ -41,7 +41,8 @@ archives:
     files:
       - README.md
       - LICENSE
-      - SKILL.md
+      - SECURITY.md
+      - skills/godrop/SKILL.md
 
 checksum:
   # install.sh looks for exactly this file.
@@ -74,7 +75,7 @@ nfpms:
         dst: /usr/share/doc/godrop/examples/Caddyfile
       - src: deploy/nginx.conf
         dst: /usr/share/doc/godrop/examples/nginx.conf
-      - src: SKILL.md
+      - src: skills/godrop/SKILL.md
         dst: /usr/share/doc/godrop/SKILL.md
     scripts:
       postinstall: packaging/postinstall.sh

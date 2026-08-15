@@ -58,8 +58,10 @@ run: ## Run a development server on port 48080 with a throwaway token
 	go run ./cmd/godrop serve
 
 .PHONY: docs
-docs: build ## Regenerate the command line reference in README.md
+docs: build ## Regenerate the generated documentation
 	sh scripts/readme-cli.sh bin/$(BINARY)
+	cp skills/godrop/SKILL.md internal/cli/skill/SKILL.md
+	@echo "synced the embedded skill from skills/godrop/SKILL.md"
 
 .PHONY: snapshot
 snapshot: ## Build every release artefact locally, without publishing

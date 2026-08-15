@@ -222,8 +222,10 @@ Available Commands:
   help        Help about any command
   init        Guided setup: configure, generate a token, start and verify
   serve       Start the HTTP server
+  skill       Install the agent skill that teaches a coding agent to use GoDrop
   telemetry   Inspect or change the anonymous heartbeat
   token       Create, list and revoke API tokens
+  update      Update GoDrop to the latest release
   version     Print version information
 
 Flags:
@@ -435,6 +437,121 @@ Global Flags:
 </details>
 
 <details>
+<summary><code>godrop skill --help</code></summary>
+
+```console
+$ godrop skill --help
+Agent skills are folders holding a SKILL.md that tells a coding agent how
+to do something. GoDrop ships one, so an agent that has never seen it can
+upload a file and hand back a link without being told how.
+
+The skill needs no secrets: it reads GODROP_URL and GODROP_TOKEN from the
+environment, so the same file is safe to commit alongside a project.
+
+It can also be installed with the GitHub CLI, which supports every agent:
+
+  gh skill install fatihbaltaci/GoDrop godrop --scope user
+
+Usage:
+  godrop skill [command]
+
+Available Commands:
+  install     Write the skill into an agent's skill directory
+  show        Print the skill, so it can be piped somewhere else
+
+Flags:
+  -h, --help   help for skill
+
+Global Flags:
+      --json       machine-readable output
+      --no-color   disable coloured output
+
+Use "godrop skill [command] --help" for more information about a command.
+```
+
+</details>
+
+<details>
+<summary><code>godrop skill install --help</code></summary>
+
+```console
+$ godrop skill install --help
+Write the skill into an agent's skill directory.
+
+Project scope (the default) installs into the working directory, so the skill
+travels with the repository. User scope installs into your home directory,
+where every project can see it.
+
+Usage:
+  godrop skill install [flags]
+
+Flags:
+      --agent string   shared (most agents) or claude; use --dir for anything else (default "shared")
+      --dir string     install into this directory instead, overriding --agent and --scope
+      --force          replace an existing skill
+  -h, --help           help for install
+      --scope string   project or user (default "project")
+
+Global Flags:
+      --json       machine-readable output
+      --no-color   disable coloured output
+```
+
+</details>
+
+<details>
+<summary><code>godrop skill show --help</code></summary>
+
+```console
+$ godrop skill show --help
+Print the skill, so it can be piped somewhere else
+
+Usage:
+  godrop skill show [flags]
+
+Flags:
+  -h, --help   help for show
+
+Global Flags:
+      --json       machine-readable output
+      --no-color   disable coloured output
+```
+
+</details>
+
+<details>
+<summary><code>godrop update --help</code></summary>
+
+```console
+$ godrop update --help
+Download the newest release and put it in place of this binary.
+
+Nothing is replaced until the download has been checked against the published
+SHA256SUMS and the new binary has been run and seen to report its own version,
+so a failed update leaves the working installation exactly as it was. The file
+is then swapped with a rename, which is atomic: a server that is already
+running keeps serving from the binary it started with, and restarts into the
+new one.
+
+Installations owned by something else are refused rather than overwritten. Use
+apt, dnf or brew for those, and pull a new image for a container.
+
+Usage:
+  godrop update [flags]
+
+Flags:
+      --check            report whether a newer release exists, without installing it
+  -h, --help             help for update
+      --version string   install this release instead of the newest, e.g. v1.2.0
+
+Global Flags:
+      --json       machine-readable output
+      --no-color   disable coloured output
+```
+
+</details>
+
+<details>
 <summary><code>godrop telemetry --help</code></summary>
 
 ```console
@@ -606,6 +723,30 @@ list and the shell history would both keep a copy:
 GODROP_TOKEN=gd_... godrop doctor --url https://files.example.com
 ```
 
+## Updating
+
+```bash
+godrop update --check     # is there a newer release?
+godrop update             # install it
+```
+
+Nothing is replaced until the download has been checked against the published
+`SHA256SUMS` **and** the new binary has been run and seen to report its own
+version, so a failed update leaves the working installation exactly as it was.
+The swap itself is a rename, which is atomic: a running server keeps serving
+from the binary it started with and picks up the new one when it restarts.
+
+An installation that belongs to a package manager is refused rather than
+overwritten, with the command that does the job instead:
+
+| Installed with | Update with |
+| --- | --- |
+| `install.sh`, or a downloaded archive | `godrop update` |
+| `.deb` | `sudo apt update && sudo apt install --only-upgrade godrop` |
+| `.rpm` | `sudo dnf upgrade godrop` |
+| Docker | `docker pull ghcr.io/fatihbaltaci/godrop` |
+| `go install` | `go install github.com/fatihbaltaci/GoDrop/cmd/godrop@latest` |
+
 ## Deploying
 
 ### On your own machine, a LAN or Tailscale
@@ -679,7 +820,6 @@ curl https://files.example.com/llms.txt       # the whole API as plain text
 curl https://files.example.com/openapi.yaml   # machine-readable schema
 ```
 
-- [`SKILL.md`](SKILL.md): a drop-in skill file for Claude Code and similar tools
 - Every command accepts `--json`, and in that mode prints **nothing but** the
   document, so parsing never breaks
 - Colour and interactive prompts switch themselves off when there is no
@@ -688,6 +828,32 @@ curl https://files.example.com/openapi.yaml   # machine-readable schema
 ```bash
 godrop token create --name claude-code --json | jq -r .token
 godrop doctor --json | jq '.ok'
+```
+
+### Agent skills
+
+GoDrop ships an [agent skill](skills/godrop/SKILL.md): the instructions a
+coding agent needs to upload a file and hand back a link, without being told
+how. Install it with GoDrop itself:
+
+```bash
+godrop skill install --scope user          # available in every project
+godrop skill install                       # or just this repository
+godrop skill install --agent claude        # Claude Code's own directory
+```
+
+Or with the GitHub CLI, which knows where every agent keeps them:
+
+```bash
+gh skill install fatihbaltaci/GoDrop godrop --scope user
+```
+
+The skill holds no secrets. It reads `GODROP_URL` and `GODROP_TOKEN` from the
+environment, so it is safe to commit alongside a project:
+
+```bash
+export GODROP_URL=https://files.example.com
+export GODROP_TOKEN=$(godrop token create --name claude-code --json | jq -r .token)
 ```
 
 ## Security

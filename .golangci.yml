@@ -25,4 +25,5 @@ linters:
       - std-error-handling
     rules:
       - path: _test\.go
-        linters: [gosec, errcheck]
+        # A test that builds an http.Response as a fixture is not leaking one.
+        linters: [gosec, errcheck, bodyclose]

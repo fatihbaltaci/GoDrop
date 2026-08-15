@@ -19,7 +19,7 @@ trap 'rm -f "$tmp"' EXIT
 {
 	printf '%s\n\n' "$BEGIN"
 	for cmd in "" "serve" "init" "token" "token create" "token list" "token revoke" \
-		"doctor" "telemetry" "health" "version"; do
+		"doctor" "skill" "skill install" "skill show" "update" "telemetry" "health" "version"; do
 		if [ -z "$cmd" ]; then label="godrop --help"; else label="godrop $cmd --help"; fi
 		printf '<details>\n<summary><code>%s</code></summary>\n\n' "$label"
 		printf '```console\n$ %s\n' "$label"
