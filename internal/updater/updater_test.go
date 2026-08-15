@@ -15,8 +15,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // release builds the artefacts a real release publishes: an archive holding a
@@ -349,4 +351,53 @@ func skipIfManaged(t *testing.T) {
 	original := inContainer
 	inContainer = func() bool { return false }
 	t.Cleanup(func() { inContainer = original })
+}
+
+func TestARateLimitSaysHowLongToWait(t *testing.T) {
+	// A shared address can use up GitHub's anonymous allowance without the
+	// person at the keyboard doing anything, and "403 Forbidden" reads like a
+	// permission problem rather than a wait.
+	at := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-RateLimit-Remaining", "0")
+		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(at.Add(12*time.Minute).Unix(), 10))
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	_, err := Latest(context.Background(), Options{
+		APIURL: srv.URL,
+		Now:    func() time.Time { return at },
+	})
+	if err == nil {
+		t.Fatal("a rate limit is still a failure")
+	}
+	for _, want := range []string{"rate limit", "try again in 12m", "releases/latest"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want it to mention %q", err, want)
+		}
+	}
+}
+
+func TestTheClockDefaultsToTheRealOne(t *testing.T) {
+	if got := now(Options{}); time.Since(got) > time.Minute {
+		t.Errorf("now() = %v, want the current time", got)
+	}
+}
+
+func TestResetIn(t *testing.T) {
+	at := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
+	cases := map[string]string{
+		"":             "",
+		"not a number": "",
+		strconv.FormatInt(at.Add(-time.Hour).Unix(), 10):     "",
+		strconv.FormatInt(at.Add(90*time.Second).Unix(), 10): " (try again in 2m)",
+		strconv.FormatInt(at.Add(time.Hour).Unix(), 10):      " (try again in 1h)",
+		strconv.FormatInt(at.Add(90*time.Minute).Unix(), 10): " (try again in 1h30m)",
+	}
+	for header, want := range cases {
+		if got := resetIn(header, at); got != want {
+			t.Errorf("resetIn(%q) = %q, want %q", header, got, want)
+		}
+	}
 }

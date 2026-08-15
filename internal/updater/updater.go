@@ -28,7 +28,9 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // Repo is the GitHub repository releases are published from.
@@ -57,6 +59,16 @@ type Options struct {
 	Verify func(path string) (string, error)
 	// GOOS and GOARCH default to the running platform.
 	GOOS, GOARCH string
+	// Now is the clock, for tests.
+	Now func() time.Time
+}
+
+// now is the clock the package reads.
+func now(opts Options) time.Time {
+	if opts.Now != nil {
+		return opts.Now()
+	}
+	return time.Now()
 }
 
 // Result describes what an update did.
@@ -94,6 +106,14 @@ func Latest(ctx context.Context, opts Options) (string, error) {
 	if resp.StatusCode == http.StatusNotFound {
 		return "", fmt.Errorf("%s has published no releases yet", Repo)
 	}
+	// A shared address (an office, a CI runner, a NAT) can use up GitHub's
+	// anonymous allowance without the person at the keyboard doing anything,
+	// and "403 Forbidden" reads like a permission problem rather than a wait.
+	if resp.StatusCode == http.StatusForbidden && resp.Header.Get("X-RateLimit-Remaining") == "0" {
+		return "", fmt.Errorf("github's rate limit for this address is used up%s; "+
+			"the release page still works: https://github.com/%s/releases/latest",
+			resetIn(resp.Header.Get("X-RateLimit-Reset"), now(opts)), Repo)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("github returned %s when asked for the latest release", resp.Status)
 	}
@@ -104,6 +124,25 @@ func Latest(ctx context.Context, opts Options) (string, error) {
 		return "", errors.New("could not read the latest release from github")
 	}
 	return release.TagName, nil
+}
+
+// resetIn turns the rate limit reset header into " (try again in 12m)", or
+// nothing at all when the header is missing or already past.
+func resetIn(header string, at time.Time) string {
+	seconds, err := strconv.ParseInt(header, 10, 64)
+	if err != nil {
+		return ""
+	}
+	wait := time.Unix(seconds, 0).Sub(at).Round(time.Minute)
+	if wait <= 0 {
+		return ""
+	}
+	// 2m0s and 1h0m0s read like machine output; 2m and 1h read like an answer.
+	text := strings.TrimSuffix(wait.String(), "0s")
+	if strings.HasSuffix(text, "h0m") {
+		text = strings.TrimSuffix(text, "0m")
+	}
+	return " (try again in " + text + ")"
 }
 
 // Update downloads a release and puts it in place of the current binary.
