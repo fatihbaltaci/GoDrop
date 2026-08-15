@@ -159,9 +159,13 @@ curl -X DELETE -H "Authorization: Bearer $GODROP_TOKEN" \
 <pre><code>curl https://files.example.com/llms.txt      <span class="cmt"># the whole API in plain text</span>
 curl https://files.example.com/openapi.yaml  <span class="cmt"># machine-readable schema</span></code></pre>
   <p>
-    There is a ready-made skill file at
-    <a href="https://github.com/fatihbaltaci/GoDrop/blob/main/SKILL.md">SKILL.md</a>.
+    There is a ready-made
+    <a href="https://github.com/fatihbaltaci/GoDrop/blob/main/skills/godrop/SKILL.md">agent skill</a>,
+    which GoDrop installs itself:
   </p>
+<pre><code>godrop skill install --scope user
+<span class="cmt"># or, for any of the other agents:</span>
+gh skill install fatihbaltaci/GoDrop godrop --scope user</code></pre>
 
   <h2>Run it anywhere</h2>
   <ul>

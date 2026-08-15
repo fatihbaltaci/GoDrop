@@ -70,6 +70,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # `godrop version` inside the image should say the same thing as the
+      # binaries in the release: a short commit and the date it was built.
+      - id: build_meta
+        run: |
+          echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "date=$(git show -s --format=%cI HEAD)" >> "$GITHUB_OUTPUT"
+
       - id: meta
         uses: docker/metadata-action@v6
         with:
@@ -90,7 +97,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VERSION=${{ github.ref_name }}
-            COMMIT=${{ github.sha }}
+            COMMIT=${{ steps.build_meta.outputs.commit }}
+            DATE=${{ steps.build_meta.outputs.date }}
             POSTHOG_KEY=${{ env.POSTHOG_KEY }}
             POSTHOG_HOST=${{ env.POSTHOG_HOST }}
           cache-from: type=gha
