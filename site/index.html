@@ -206,7 +206,9 @@
 <pre><code>GODROP_TLS=auto
 GODROP_BASE_URL=https://files.example.com</code></pre>
   <p class="note">
-    Already have a certificate? Point <code>GODROP_TLS_CERT</code> and
+    Open ports 443 <em>and</em> 80 on the server and in your cloud provider's
+    firewall: 80 is where the certificate challenge is answered. Already have
+    a certificate? Point <code>GODROP_TLS_CERT</code> and
     <code>GODROP_TLS_KEY</code> at it instead. Behind a proxy or on a private
     network, leave TLS off and nothing changes.
   </p>

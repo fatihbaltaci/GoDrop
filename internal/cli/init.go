@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -217,18 +218,25 @@ func verify(ctx context.Context, out *output, a wizard.Answers) {
 		out.hint("start it, then run: godrop doctor")
 	}
 
-	port := wizard.PublicPort(a)
-	fw := checkFirewall(ctx, nil, port)
-	switch {
-	case !fw.Inspected:
-		out.skip("%-22s no host firewall detected", "firewall")
-	case fw.PortOpen:
-		out.success("%-22s %s allows port %d", "firewall", fw.Tool, port)
-	default:
-		out.fail("%-22s %s blocks port %d", "firewall", fw.Tool, port)
-		out.hint("%s", fw.Hint)
+	// With a certificate of its own GoDrop needs port 80 as well as 443, and
+	// an install that opens only 443 never gets past the challenge.
+	ports := wizard.PublicPorts(a)
+	for i, port := range ports {
+		fw := checkFirewall(ctx, nil, port)
+		switch {
+		case !fw.Inspected:
+			// Saying it once is enough: there is one firewall, not one per port.
+			if i == 0 {
+				out.skip("%-22s no host firewall detected", "firewall")
+			}
+		case fw.PortOpen:
+			out.success("%-22s %s allows port %d", "firewall", fw.Tool, port)
+		default:
+			out.fail("%-22s %s blocks port %d", "firewall", fw.Tool, port)
+			out.hint("%s", fw.Hint)
+		}
 	}
-	for _, step := range wizard.FirewallSteps(a, port) {
+	for _, step := range wizard.FirewallSteps(a, ports...) {
 		if strings.HasPrefix(step, "also open") {
 			out.skip("%s", step)
 		}
@@ -262,10 +270,27 @@ func verify(ctx context.Context, out *output, a wizard.Answers) {
 			msg = fmt.Sprintf("HTTP %d", res.Status)
 		}
 		out.fail("%-22s not reachable: %s", "external access", msg)
-		out.hint("open port %d in your cloud provider's firewall (AWS security group, Hetzner firewall, GCP rule)", port)
+		out.hint("open %s in your cloud provider's firewall (AWS security group, Hetzner firewall, GCP rule)",
+			portList(ports))
 		if !wizard.ServesTLS(a) {
 			out.hint("and check that your reverse proxy forwards to 127.0.0.1:%s", a.Port)
 		}
+	}
+}
+
+// portList renders the ports for a sentence: "port 443" or "ports 443 and 80".
+func portList(ports []int) string {
+	switch len(ports) {
+	case 0:
+		return "the public port"
+	case 1:
+		return fmt.Sprintf("port %d", ports[0])
+	default:
+		parts := make([]string, 0, len(ports))
+		for _, p := range ports {
+			parts = append(parts, strconv.Itoa(p))
+		}
+		return "ports " + strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
 	}
 }
 

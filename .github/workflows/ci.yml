@@ -202,17 +202,17 @@ jobs:
       - name: Smoke test the image
         run: |
           set -euo pipefail
-          docker run -d --name godrop -p 8080:8080 \
+          docker run -d --name godrop -p 8747:8747 \
             -e GODROP_TOKENS=ci-token-with-enough-entropy \
             -v godrop-data:/data godrop:ci
           for _ in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1; then break; fi
+            if curl -fsS http://127.0.0.1:8747/healthz >/dev/null 2>&1; then break; fi
             sleep 1
           done
-          curl -fsS http://127.0.0.1:8080/healthz
+          curl -fsS http://127.0.0.1:8747/healthz
           echo "hello from ci" > sample.txt
           url=$(curl -fsS -X POST -H "Authorization: Bearer ci-token-with-enough-entropy" \
-                 -F "file=@sample.txt" http://127.0.0.1:8080/upload |
+                 -F "file=@sample.txt" http://127.0.0.1:8747/upload |
                  sed -n 's/.*"url":"\([^"]*\)".*/\1/p')
           echo "uploaded to $url"
           test "$(curl -fsS "$url")" = "hello from ci"
@@ -222,3 +222,30 @@ jobs:
           docker exec godrop /godrop health
           docker logs godrop
           docker rm -f godrop
+
+      - name: Smoke test the image over TLS
+        run: |
+          set -euo pipefail
+          # The health check has to follow the certificate: probing http on
+          # the https port marks a healthy container unhealthy for ever.
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -keyout key.pem -out cert.pem -subj /CN=localhost \
+            -addext subjectAltName=DNS:localhost,IP:127.0.0.1
+          chmod 644 key.pem cert.pem
+          docker run -d --name godrop-tls -p 8443:443 -p 8480:80 \
+            -e GODROP_TOKENS=ci-token-with-enough-entropy \
+            -e GODROP_TLS_CERT=/cert.pem -e GODROP_TLS_KEY=/key.pem \
+            -v "$PWD/cert.pem:/cert.pem:ro" -v "$PWD/key.pem:/key.pem:ro" \
+            godrop:ci
+          for _ in $(seq 1 30); do
+            if curl -fsSk https://127.0.0.1:8443/healthz >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          curl -fsSk https://127.0.0.1:8443/healthz
+          # Port 80 sends everyone to https rather than serving anything.
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: localhost' \
+                 http://127.0.0.1:8480/f/a/b.jpg)
+          test "$code" = "302"
+          docker exec godrop-tls /godrop health
+          docker logs godrop-tls
+          docker rm -f godrop-tls

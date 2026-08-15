@@ -478,6 +478,22 @@ func isWeakToken(t string) bool {
 
 // ------------------------------------------------------------------ network
 
+// publicPorts lists what has to be reachable from the internet. With an
+// automatic certificate that includes port 80: opening only 443 is the
+// commonest reason an otherwise correct install never gets one.
+func (r *runner) publicPorts(target string) []int {
+	var ports []int
+	if p := portOf(r.Config.Addr, target); p > 0 {
+		ports = append(ports, p)
+	}
+	if r.Config.TLS == config.TLSAuto && r.Config.HTTPAddr != "" {
+		if p := portOf(r.Config.HTTPAddr, ""); p > 0 && p != portOf(r.Config.Addr, target) {
+			ports = append(ports, p)
+		}
+	}
+	return ports
+}
+
 func (r *runner) checkNetwork(ctx context.Context) {
 	const g = "network"
 	target := r.targetURL()
@@ -494,15 +510,22 @@ func (r *runner) checkNetwork(ctx context.Context) {
 			r.add(g, "listening", Warn, "nothing is listening on "+addr,
 				"start the service: docker compose up -d  (or systemctl start godrop)")
 		}
-		if port := portOf(r.Config.Addr, target); port > 0 {
+		for i, port := range r.publicPorts(target) {
+			// The second entry is always the challenge port, named apart so
+			// the two results do not run together in a reader's mind.
+			name := "firewall"
+			if i > 0 {
+				name = "firewall_http"
+			}
 			fw := netcheck.CheckFirewall(ctx, r.Runner, port)
 			switch {
 			case !fw.Inspected:
-				r.add(g, "firewall", Skip, fw.Hint, "")
+				r.add(g, name, Skip, fw.Hint, "")
 			case fw.PortOpen:
-				r.add(g, "firewall", Pass, fmt.Sprintf("%s allows port %d", fw.Tool, port), "")
+				r.add(g, name, Pass, fmt.Sprintf("%s allows port %d", fw.Tool, port), "")
 			default:
-				r.add(g, "firewall", Fail, fmt.Sprintf("%s is active and port %d is not allowed", fw.Tool, port), fw.Hint)
+				r.add(g, name, Fail, fmt.Sprintf("%s is active and port %d is not allowed", fw.Tool, port),
+					fw.Hint)
 			}
 		}
 	}

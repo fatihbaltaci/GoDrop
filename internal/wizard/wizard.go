@@ -14,6 +14,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/fatihbaltaci/GoDrop/internal/config"
@@ -516,18 +517,50 @@ func NextStepsFor(goos string, a Answers) []string {
 	return steps
 }
 
-// FirewallSteps returns the commands that open the public port, when the setup
-// needs one. Cloud firewalls are named explicitly because they are invisible
-// from inside the machine and are the most common reason a fresh install is
-// unreachable.
-func FirewallSteps(_ Answers, publicPort int) []string {
-	if publicPort <= 0 {
+// PublicPorts lists every port the outside world has to reach. When GoDrop
+// gets its own certificate that is two: 443 for traffic, and 80, which
+// answers the certificate challenge and redirects anyone who typed http://.
+// Opening only 443 is the most common reason an otherwise correct install
+// never gets a certificate.
+func PublicPorts(a Answers) []int {
+	port := PublicPort(a)
+	if !ServesTLS(a) || port == 80 {
+		if port <= 0 {
+			return nil
+		}
+		return []int{port}
+	}
+	if port <= 0 {
+		return []int{80}
+	}
+	return []int{port, 80}
+}
+
+// FirewallSteps returns the commands that open those ports. Cloud firewalls
+// are named explicitly because they are invisible from inside the machine and
+// are the most common reason a fresh install is unreachable.
+func FirewallSteps(_ Answers, ports ...int) []string {
+	var open []int
+	for _, p := range ports {
+		if p > 0 {
+			open = append(open, p)
+		}
+	}
+	if len(open) == 0 {
 		return nil
 	}
+	list := make([]string, 0, len(open))
+	fwCmd := make([]string, 0, len(open))
+	for _, p := range open {
+		list = append(list, strconv.Itoa(p))
+		fwCmd = append(fwCmd, fmt.Sprintf("--add-port=%d/tcp", p))
+	}
+	joined := strings.Join(list, ",")
 	return []string{
-		fmt.Sprintf("sudo ufw allow %d/tcp        # Debian/Ubuntu", publicPort),
-		fmt.Sprintf("sudo firewall-cmd --permanent --add-port=%d/tcp && sudo firewall-cmd --reload   # RHEL/Fedora", publicPort),
-		fmt.Sprintf("also open %d/tcp in your provider's firewall (AWS security group, Hetzner firewall, GCP VPC rule)", publicPort),
+		fmt.Sprintf("sudo ufw allow %s/tcp        # Debian/Ubuntu", joined),
+		fmt.Sprintf("sudo firewall-cmd --permanent %s && sudo firewall-cmd --reload   # RHEL/Fedora",
+			strings.Join(fwCmd, " ")),
+		fmt.Sprintf("also open %s/tcp in your provider's firewall (AWS security group, Hetzner firewall, GCP VPC rule)", joined),
 	}
 }
 

@@ -88,7 +88,9 @@ GODROP_BASE_URL=https://files.example.com
 ```
 
 It gets a certificate from Let's Encrypt on the first request, keeps it in
-`<data dir>/acme` and renews it. Ports 443 and 80 must be reachable; with
+`<data dir>/acme` and renews it. Ports 443 and 80 must both be reachable, in
+the host firewall and in the cloud provider's (`sudo ufw allow 443,80/tcp`):
+port 80 answers the challenge and redirects http to https. With
 `GODROP_HTTP_ADDR=off` the certificate is issued over 443 alone. A certificate
 you already have goes in `GODROP_TLS_CERT` and `GODROP_TLS_KEY`. Behind a
 proxy, or on a private network, leave TLS off.

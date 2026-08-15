@@ -490,3 +490,57 @@ func mustConfig(t *testing.T, env map[string]string) *config.Config {
 	}
 	return cfg
 }
+
+func TestVerifyChecksBothPortsWhenGoDropServesTLS(t *testing.T) {
+	// The certificate arrives over port 80; an install that opens only 443
+	// waits for a certificate that can never be issued.
+	originalFirewall, originalExternal := checkFirewall, externalCheck
+	t.Cleanup(func() { checkFirewall, externalCheck = originalFirewall, originalExternal })
+
+	var asked []int
+	checkFirewall = func(_ context.Context, _ netcheck.Runner, port int) netcheck.Firewall {
+		asked = append(asked, port)
+		return netcheck.Firewall{Tool: "ufw", Inspected: true, PortOpen: true}
+	}
+	externalCheck = func(context.Context, *http.Client, string, string) (netcheck.ExternalResult, error) {
+		return netcheck.ExternalResult{OK: false, Error: "connection refused"}, nil
+	}
+
+	a := wizard.Defaults()
+	a.BaseURL = "https://files.example.com"
+	a.TLS = wizard.TLSAuto
+
+	var buf bytes.Buffer
+	verify(t.Context(), &output{w: &buf}, a)
+
+	if len(asked) != 2 || asked[0] != 443 || asked[1] != 80 {
+		t.Errorf("checked ports %v, want 443 and 80", asked)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "443,80/tcp") {
+		t.Errorf("the advice should name both ports:\n%s", out)
+	}
+	if !strings.Contains(out, "ports 443 and 80") {
+		t.Errorf("the unreachable hint should name both ports:\n%s", out)
+	}
+	if strings.Contains(out, "reverse proxy forwards") {
+		t.Error("there is no proxy to forward anything when GoDrop serves TLS")
+	}
+}
+
+func TestPortList(t *testing.T) {
+	cases := []struct {
+		ports []int
+		want  string
+	}{
+		{nil, "the public port"},
+		{[]int{443}, "port 443"},
+		{[]int{443, 80}, "ports 443 and 80"},
+		{[]int{443, 80, 8080}, "ports 443, 80 and 8080"},
+	}
+	for _, tc := range cases {
+		if got := portList(tc.ports); got != tc.want {
+			t.Errorf("portList(%v) = %q, want %q", tc.ports, got, tc.want)
+		}
+	}
+}

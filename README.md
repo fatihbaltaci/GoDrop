@@ -127,6 +127,7 @@ $ godrop init
   Verifying
   ✓ 127.0.0.1:443         listening
   ✓ firewall              ufw allows port 443
+  ✓ firewall              ufw allows port 80
   ✓ external access       reachable (HTTP 200, from FRA)
 ```
 
@@ -852,10 +853,22 @@ GODROP_BASE_URL=https://files.example.com
 
 That is the whole configuration. On the first request GoDrop gets a
 certificate from Let's Encrypt, keeps it in `<data dir>/acme` and renews it
-long before it expires. Port 443 must be reachable, and port 80 with it: it
-answers the challenge and redirects anyone who typed `http://`. If 80 is
-unavailable, set `GODROP_HTTP_ADDR=off` and the certificate is still issued
-over 443 alone, through `acme-tls/1`.
+long before it expires.
+
+**Open 443 and 80** to the internet. Port 80 answers the certificate
+challenge and redirects anyone who typed `http://`, so an install that opens
+only 443 waits for a certificate that never arrives. On a VPS that means both
+the host firewall and your provider's, which is invisible from inside the
+machine:
+
+```bash
+sudo ufw allow 443,80/tcp
+# and the same two ports in the AWS security group, Hetzner firewall or GCP rule
+```
+
+`godrop init` and `godrop doctor` both check the two ports and say which one
+is missing. If port 80 is genuinely unavailable, set `GODROP_HTTP_ADDR=off`
+and the certificate is still issued over 443 alone, through `acme-tls/1`.
 
 Already have a certificate, from certbot, your company CA or your cloud
 provider? Name the two files and nothing else changes:

@@ -408,6 +408,48 @@ func TestFirewallStepsNameCloudFirewallsToo(t *testing.T) {
 	if FirewallSteps(Defaults(), 0) != nil {
 		t.Error("no port means no firewall advice")
 	}
+	if FirewallSteps(Defaults()) != nil {
+		t.Error("no ports at all means no firewall advice")
+	}
+}
+
+func TestServingTLSNeedsBothPortsOpen(t *testing.T) {
+	t.Parallel()
+	// Opening 443 and forgetting 80 is the commonest reason an otherwise
+	// correct install never gets a certificate.
+	a := Defaults()
+	a.BaseURL = "https://files.example.com"
+	a.TLS = TLSAuto
+	if got := PublicPorts(a); len(got) != 2 || got[0] != 443 || got[1] != 80 {
+		t.Errorf("PublicPorts = %v, want 443 and 80", got)
+	}
+	joined := strings.Join(FirewallSteps(a, PublicPorts(a)...), "\n")
+	for _, want := range []string{"ufw allow 443,80/tcp", "--add-port=443/tcp --add-port=80/tcp", "443,80/tcp in your provider"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("firewall steps should mention %q:\n%s", want, joined)
+		}
+	}
+
+	// Behind a proxy only the public port matters.
+	a.TLS = TLSProxy
+	if got := PublicPorts(a); len(got) != 1 || got[0] != 443 {
+		t.Errorf("PublicPorts = %v, want just the public one", got)
+	}
+	// A plain http install on port 80 needs it named once, not twice.
+	a.TLS = TLSFile
+	a.BaseURL = "http://files.example.com"
+	if got := PublicPorts(a); len(got) != 1 || got[0] != 80 {
+		t.Errorf("PublicPorts = %v, want 80 alone", got)
+	}
+	// Nothing to say without an address at all.
+	a.BaseURL, a.Port = "", ""
+	if got := PublicPorts(a); len(got) != 1 || got[0] != 80 {
+		t.Errorf("PublicPorts = %v, want the challenge port", got)
+	}
+	a.TLS = TLSNone
+	if got := PublicPorts(a); got != nil {
+		t.Errorf("PublicPorts = %v, want none", got)
+	}
 }
 
 func TestCurlExamplesAreReadyToRun(t *testing.T) {

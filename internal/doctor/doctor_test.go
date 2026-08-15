@@ -1591,3 +1591,48 @@ func TestTheLocalProbeFollowsTLS(t *testing.T) {
 		t.Errorf("targetURL = %q", got)
 	}
 }
+
+func TestAnAutomaticCertificateNeedsPortEightyOpenToo(t *testing.T) {
+	cfg := baseConfig(t)
+	cfg.TLS = config.TLSAuto
+	cfg.TLSDomains = []string{"files.example.com"}
+	cfg.TLSCacheDir = filepath.Join(cfg.DataDir, "acme")
+	cfg.Addr = ":443"
+	cfg.HTTPAddr = ":80"
+
+	report := Run(context.Background(), offlineOptions(cfg))
+
+	// Both checks are present, and named apart so one cannot hide the other.
+	for _, name := range []string{"firewall", "firewall_http"} {
+		if !has(report, name) {
+			t.Errorf("%s check missing: %+v", name, report.Checks)
+		}
+	}
+
+	// Without the challenge listener there is nothing to open on 80.
+	cfg.HTTPAddr = ""
+	if has(Run(context.Background(), offlineOptions(cfg)), "firewall_http") {
+		t.Error("with GODROP_HTTP_ADDR=off, port 80 is not needed")
+	}
+
+	// Behind a proxy, or on the same port, only one check is made.
+	cfg.TLS = config.TLSOff
+	cfg.HTTPAddr = ":80"
+	if has(Run(context.Background(), offlineOptions(cfg)), "firewall_http") {
+		t.Error("without an automatic certificate, port 80 is not GoDrop's problem")
+	}
+}
+
+func TestTheChallengePortIsNotCheckedTwice(t *testing.T) {
+	cfg := baseConfig(t)
+	cfg.BaseURL = "http://files.example.com"
+	cfg.TLS = config.TLSAuto
+	cfg.TLSDomains = []string{"files.example.com"}
+	cfg.TLSCacheDir = filepath.Join(cfg.DataDir, "acme")
+	cfg.Addr = ":80"
+	cfg.HTTPAddr = ":80"
+
+	if has(Run(context.Background(), offlineOptions(cfg)), "firewall_http") {
+		t.Error("one port, one check")
+	}
+}
