@@ -1,7 +1,8 @@
-# Build output
+# Build output. The binary is anchored to the repository root so that the
+# cmd/godrop package is not swept up with it.
 /bin/
 /dist/
-godrop
+/godrop
 
 # Local state
 /data/
