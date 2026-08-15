@@ -13,6 +13,15 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
 </p>
 
+<p align="center">
+  <img src="site/demo.svg" alt="Uploading photo.jpg with curl and getting back a hard-to-guess URL" width="695">
+</p>
+
+That is the whole idea. Downloads need no token; uploads and deletes do.
+
+<details>
+<summary>The same thing as text, for copying</summary>
+
 ```bash
 curl -X POST \
   -H "Authorization: Bearer $GODROP_TOKEN" \
@@ -35,7 +44,7 @@ curl -X POST \
 }
 ```
 
-That is the whole idea. Downloads need no token; uploads and deletes do.
+</details>
 
 ---
 

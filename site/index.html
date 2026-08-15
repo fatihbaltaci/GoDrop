@@ -146,6 +146,15 @@
     color: var(--muted);
     font-size: .93rem;
   }
+  .demo {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 695px;
+    margin: 0 auto 3rem;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+  }
 </style>
 </head>
 <body>
@@ -155,6 +164,9 @@
     <h1>GoDrop</h1>
     <p class="tagline">Upload a file, get a hard-to-guess URL.<br>Written in Go: one binary, no database.</p>
   </header>
+
+  <img class="demo" src="demo.svg" width="695" height="242"
+       alt="Uploading photo.jpg with curl and getting back a hard-to-guess URL">
 
   <h2>Install</h2>
 <pre><code>curl -fsSL https://godrop.sh/install.sh | sh</code></pre>
