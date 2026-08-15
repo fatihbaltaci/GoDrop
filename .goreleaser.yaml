@@ -85,6 +85,10 @@ nfpms:
 changelog:
   sort: asc
   use: github
+  # The default line ends with the author's name and email address. The
+  # address belongs in git, not on a public release page; the GitHub handle
+  # is both a link to the person and no new information.
+  format: "{{ .SHA }}: {{ .Message }} ({{ with .AuthorUsername }}@{{ . }}{{ else }}{{ .AuthorName }}{{ end }})"
   filters:
     exclude:
       - "^test:"
@@ -112,6 +116,10 @@ changelog:
 release:
   draft: false
   prerelease: auto
+  # Re-running a release that failed halfway through (a flaky upload, a step
+  # that needed a setting changed) would otherwise stop at the first asset
+  # that already exists.
+  mode: replace
   footer: |
     ## Install
 
