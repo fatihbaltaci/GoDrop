@@ -105,11 +105,15 @@ jobs:
 
       # Short runs on every change; the seed corpus in testdata/ turns anything
       # ever found into a permanent regression test.
+      #
+      # Counted rather than timed: a deadline that expires mid-iteration makes
+      # `go test` report "context deadline exceeded" as a failure even when
+      # nothing was found, which turns the job red at random.
       - name: Fuzz the sanitisers
         run: |
           for target in FuzzSanitizeExt FuzzSanitizeSlug FuzzSplitStoredName; do
             echo "── $target"
-            go test ./internal/server/ -run "^$" -fuzz "^${target}$" -fuzztime 30s
+            go test ./internal/server/ -run "^$" -fuzz "^${target}$" -fuzztime 300000x
           done
 
   lint:
