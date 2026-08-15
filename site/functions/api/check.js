@@ -6,16 +6,32 @@
 // fetches the given URL from Cloudflare's edge and reports what it saw.
 //
 // It receives a URL and returns a status. It does not store anything, does not
-// read the response body, and never follows a redirect to a different host.
+// read the response body, and never follows a redirect.
+//
+// It is unauthenticated, so it is deliberately kept as narrow as an outbound
+// request primitive can be: one GET, to a health endpoint only, no query
+// string, a bounded request body and an eight-second ceiling. Volume is the
+// one thing it cannot limit by itself — that belongs to a Cloudflare rate
+// limiting rule on /api/check, which site/README.md describes.
 
 const TIMEOUT_MS = 8000;
 const MAX_URL_LENGTH = 2048;
+const MAX_BODY_BYTES = 4096;
+
+// The only thing this endpoint exists to fetch is a health endpoint. Anything
+// else would make it a general "fetch this URL for me" service on the open
+// internet — a free scanner and a status oracle for anyone who finds it.
+const ALLOWED_PATHS = [/^\/?$/, /\/healthz$/];
 
 // Hosts that would make this a proxy into private infrastructure. Cloudflare's
 // fetch cannot reach RFC1918 space from the edge, but rejecting them outright
 // gives a clearer error than a timeout.
+//
+// This is a courtesy check, not the boundary: a hostname resolving to a private
+// address is not caught here, and must not be relied on to be.
 const BLOCKED_HOSTS = [
   /^localhost$/i,
+  /\.localhost$/i,
   /^127\./,
   /^0\./,
   /^10\./,
@@ -24,9 +40,35 @@ const BLOCKED_HOSTS = [
   /^169\.254\./,
   /^\[?::1\]?$/,
   /^\[?f[cd][0-9a-f]{2}:/i,
+  /^\[?fe80:/i,
   /\.internal$/i,
   /\.local$/i,
 ];
+
+// readBounded returns the body as text, or null when it goes past limit bytes.
+// The size is checked while reading rather than after: a declared
+// content-length can lie, and a chunked body declares nothing at all.
+async function readBounded(request, limit) {
+  const declared = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > limit) return null;
+  if (!request.body) return "";
+
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) {
+      await reader.cancel();
+      return null;
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+  return text + decoder.decode();
+}
 
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -51,9 +93,14 @@ export async function onRequestOptions() {
 }
 
 export async function onRequestPost({ request }) {
+  const body = await readBounded(request, MAX_BODY_BYTES);
+  if (body === null) {
+    return json({ ok: false, error: "body too large" }, 413);
+  }
+
   let payload;
   try {
-    payload = await request.json();
+    payload = JSON.parse(body);
   } catch {
     return json({ ok: false, error: "expected a JSON body with a url field" }, 400);
   }
@@ -79,6 +126,16 @@ export async function onRequestPost({ request }) {
         "that address is only reachable from your own network, so it cannot be checked from the internet",
     }, 400);
   }
+  if (!ALLOWED_PATHS.some((pattern) => pattern.test(target.pathname))) {
+    return json({
+      ok: false,
+      error: "only a health endpoint can be checked, e.g. https://files.example.com/healthz",
+    }, 400);
+  }
+  // A query string or a fragment adds nothing to a reachability check and only
+  // widens what this endpoint can be pointed at.
+  target.search = "";
+  target.hash = "";
 
   const started = Date.now();
   const controller = new AbortController();

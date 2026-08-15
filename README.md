@@ -208,7 +208,7 @@ durations accept `30d`, `12h`, `90m`; rates accept `60/m`, `10/s`, `100/h`.
 | `GODROP_MAX_FILE_SIZE` | `100MB` | Per-file limit → `413` |
 | `GODROP_MAX_FILES_PER_REQUEST` | `20` | Files per multipart request |
 | `GODROP_MAX_TOTAL_SIZE` | *(unlimited)* | Storage quota → `507` |
-| `GODROP_RETENTION` | *(forever)* | Delete files older than this |
+| `GODROP_RETENTION` | *(forever)* | Delete uploads older than this |
 | `GODROP_RATE_LIMIT` | *(off)* | Uploads per token |
 | `GODROP_AUTH_RATE_LIMIT` | *(off)* | Failed authentications per client address |
 | `GODROP_CORS_ORIGINS` | `*` | Browser origins allowed to call the API |
@@ -240,6 +240,9 @@ unguessable. The extension is the only metadata kept — the MIME type is derive
 from it at download time.
 
 **There is no listing endpoint, by design.** Keep the URL an upload returns.
+
+Retention only ever deletes uploads. `tokens.json` and the telemetry markers
+share the directory, and sweeping those away by age would revoke every token.
 
 ## Diagnosis
 
@@ -277,6 +280,14 @@ The reachability check asks <https://godrop.sh/api/check> to fetch your
 `/healthz` from the public internet — the only way to catch a cloud firewall,
 which is invisible from inside the machine. Only the URL is sent; skip it with
 `--offline`.
+
+To diagnose an instance from your own machine, pass its address and a token.
+The token goes in the environment, not on the command line, where the process
+list and the shell history would both keep a copy:
+
+```bash
+GODROP_TOKEN=gd_... godrop doctor --url https://files.example.com
+```
 
 ## Deploying
 
@@ -361,8 +372,12 @@ godrop doctor --json | jq '.ok'
 - **Fails closed** — the server refuses to start without a token
 - **Bounded everything** — per-file size, per-request size, file count, storage
   quota, and optional per-token and per-address rate limits
+- **Logs are not a key ring** — the random half of an identifier is cut short
+  before it is written to a log, so a log reader cannot rebuild a download URL
 
-Found something? Open a security advisory on GitHub rather than an issue.
+[SECURITY.md](SECURITY.md) sets out what GoDrop defends, what it deliberately
+does not, and a hardening checklist. Found something? Open a security advisory
+on GitHub rather than an issue.
 
 ## Telemetry
 
