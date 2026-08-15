@@ -1,0 +1,251 @@
+openapi: 3.1.0
+info:
+  title: GoDrop
+  summary: Upload a file, get a hard-to-guess public URL.
+  description: |
+    A tiny self-hosted file host. Uploads and deletes require an API token;
+    downloads are public. There is no listing endpoint: identifiers carry 128
+    bits of entropy and are the only way to reach a file.
+  version: "1.0.0"
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: /
+    description: This instance
+security:
+  - bearerAuth: []
+paths:
+  /upload:
+    post:
+      operationId: uploadFiles
+      summary: Upload one or more files
+      description: |
+        Send `multipart/form-data` with one or more parts named `file`. The
+        upload is atomic: if any part is rejected, previously written parts of
+        the same request are deleted.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+              required: [file]
+      responses:
+        "201":
+          description: Files stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResponse"
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+        "415": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+        "507": { $ref: "#/components/responses/Error" }
+  /upload/{name}:
+    put:
+      operationId: uploadRaw
+      summary: Upload a single file as a raw request body
+      description: The extension of `name` determines the stored extension.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+          example: report.pdf
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "201":
+          description: File stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResponse"
+        "401": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+        "507": { $ref: "#/components/responses/Error" }
+  /f/{id}/{name}:
+    get:
+      operationId: downloadFile
+      summary: Download a file (public)
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, pattern: '^\d{8}-\d{6}-[0-9a-f]{32}$' }
+        - name: name
+          in: path
+          required: true
+          description: Cosmetic name; its extension must match the stored file.
+          schema: { type: string }
+        - name: dl
+          in: query
+          required: false
+          description: Any value forces `Content-Disposition: attachment`.
+          schema: { type: string }
+      responses:
+        "200":
+          description: File content
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "206": { description: Partial content (range request) }
+        "304": { description: Not modified }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteFile
+      summary: Delete a file
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204": { description: Deleted }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+  /f/{stored}:
+    get:
+      operationId: downloadFileShort
+      summary: Download using the short form `<id>.<ext>`
+      security: []
+      parameters:
+        - name: stored
+          in: path
+          required: true
+          schema: { type: string }
+          example: 20260815-143022-8f4e2c91b7934b38a72d1c0e5b6a4f3d92.jpg
+      responses:
+        "200":
+          description: File content
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteFileShort
+      summary: Delete using the short form `<id>.<ext>`
+      parameters:
+        - name: stored
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204": { description: Deleted }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /healthz:
+    get:
+      operationId: health
+      summary: Liveness probe
+      security: []
+      responses:
+        "200":
+          description: Process is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, const: ok }
+                  version: { type: string }
+  /readyz:
+    get:
+      operationId: ready
+      summary: Readiness probe (storage is writable)
+      security: []
+      responses:
+        "200": { description: Ready }
+        "503": { description: Storage is not writable }
+  /stats:
+    get:
+      operationId: stats
+      summary: Storage statistics
+      responses:
+        "200":
+          description: Current usage
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  files: { type: integer }
+                  bytes: { type: integer }
+                  bytes_human: { type: string }
+                  quota_bytes: { type: integer, description: 0 means unlimited }
+                  max_file: { type: integer }
+                  uptime_s: { type: integer }
+                  version: { type: string }
+        "401": { $ref: "#/components/responses/Error" }
+  /llms.txt:
+    get:
+      operationId: llmsTxt
+      summary: Plain-text API description for AI agents
+      security: []
+      responses:
+        "200":
+          description: Description of this instance
+          content:
+            text/plain:
+              schema: { type: string }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        Send `Authorization: Bearer <token>`. `X-API-Key: <token>` is accepted
+        as an alternative.
+  schemas:
+    FileInfo:
+      type: object
+      required: [url, id, size, mime]
+      properties:
+        url: { type: string, format: uri }
+        id:
+          type: string
+          description: Stored name (`<id>.<ext>`), usable with the short URL form.
+        name: { type: string, description: Original file name as sent by the client. }
+        size: { type: integer }
+        mime: { type: string }
+    UploadResponse:
+      type: object
+      required: [url, files]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: URL of the first uploaded file; always present.
+        files:
+          type: array
+          items: { $ref: "#/components/schemas/FileInfo" }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
