@@ -44,12 +44,16 @@ type Answers struct {
 	Telemetry     bool
 	ExternalCheck bool
 	Image         string
+	// DefaultLimits keeps the recommended sizes and skips those questions.
+	DefaultLimits bool
+	// Start runs the service and checks it when setup finishes.
+	Start bool
 }
 
 // Defaults returns the starting point offered to the user.
 func Defaults() Answers {
 	return Answers{
-		DataDir:       DefaultDataDir(runtime.GOOS, os.Getenv),
+		DataDir:       DefaultDataDir(runtime.GOOS, os.Getenv, os.Geteuid() == 0),
 		Port:          strings.TrimPrefix(config.DefaultAddr, ":"),
 		MaxFileSize:   "100MB",
 		MaxTotalSize:  "20GB",
@@ -58,6 +62,8 @@ func Defaults() Answers {
 		TokenName:     "default",
 		Telemetry:     true,
 		ExternalCheck: true,
+		DefaultLimits: true,
+		Start:         true,
 		Image:         "ghcr.io/fatihbaltaci/godrop:latest",
 	}
 }
@@ -76,17 +82,13 @@ const (
 // cannot issue a certificate for an address or for something.local.
 func TLSOptions(baseURL string) []Option {
 	auto := Option{
-		Label: "automatic, from Let's Encrypt (recommended)",
+		Label: "GoDrop gets one from Let's Encrypt (recommended)",
 		Value: TLSAuto,
-		Desc:  "GoDrop obtains the certificate and renews it. Needs ports 80 and 443, and a domain pointing here.",
 	}
 	rest := []Option{
-		{Label: "I have a certificate", Value: TLSFile,
-			Desc: "A certificate and key on disk, from certbot, your own CA or your cloud provider."},
-		{Label: "something in front handles it", Value: TLSProxy,
-			Desc: "Caddy, nginx, a load balancer or Cloudflare terminates TLS and forwards to GoDrop."},
-		{Label: "none, plain http", Value: TLSNone,
-			Desc: "Right on your own machine, a home network or Tailscale. Not on a public address."},
+		{Label: "I already have a certificate file", Value: TLSFile},
+		{Label: "something in front handles it (Caddy, nginx, Cloudflare)", Value: TLSProxy},
+		{Label: "no certificate, plain http", Value: TLSNone},
 	}
 	if CanAutoTLS(baseURL) {
 		return append([]Option{auto}, rest...)
@@ -107,6 +109,13 @@ func hostOf(raw string) string {
 		return ""
 	}
 	return u.Hostname()
+}
+
+// AsksTLS reports whether the certificate question is worth asking. Without a
+// public address there is nothing to get a certificate for, and an address the
+// operator deliberately wrote as http:// has already answered it.
+func AsksTLS(a Answers) bool {
+	return a.BaseURL != "" && !strings.HasPrefix(a.BaseURL, "http://")
 }
 
 // ServesTLS reports whether GoDrop itself terminates TLS, which fixes the
@@ -130,14 +139,43 @@ func ListenPort(a Answers) string {
 
 // DefaultDataDir is where uploads live on each platform: the usual place for
 // service state on Unix, and ProgramData on Windows.
-func DefaultDataDir(goos string, env func(string) string) string {
+func DefaultDataDir(goos string, env func(string) string, root bool) string {
 	if goos == "windows" {
 		if base := env("ProgramData"); base != "" {
 			return filepath.Join(base, "GoDrop")
 		}
 		return `C:\ProgramData\GoDrop`
 	}
+	if root {
+		return "/var/lib/godrop"
+	}
+	// Offering a directory the person running setup cannot create is how a
+	// wizard gets all the way to the end and then fails on a mkdir. Without
+	// root, keep the data where they can already write.
+	if base := env("XDG_DATA_HOME"); base != "" {
+		return filepath.Join(base, "godrop")
+	}
+	if home := env("HOME"); home != "" {
+		return filepath.Join(home, ".local", "share", "godrop")
+	}
 	return "/var/lib/godrop"
+}
+
+// ConfigDir is where the generated files go. Setup writes a .env with a token
+// in it and, depending on the answers, a compose file or a unit; dropping
+// those into whatever directory someone happened to be standing in is how a
+// home directory fills up with other programs' leftovers.
+func ConfigDir(env func(string) string, root bool) string {
+	if root {
+		return "/etc/godrop"
+	}
+	if home := env("HOME"); home != "" {
+		return filepath.Join(home, ".godrop")
+	}
+	if base := env("ProgramData"); base != "" {
+		return filepath.Join(base, "GoDrop")
+	}
+	return "."
 }
 
 // DeploymentOptions lists the ways GoDrop can be set up on this platform.
@@ -164,20 +202,57 @@ func ValidateBaseURL(s string) error {
 	if s == "" {
 		return nil
 	}
-	u, err := url.Parse(s)
+	// files.example.com is what people type, and refusing it teaches nothing.
+	// NormalizeBaseURL turns it into https://files.example.com afterwards.
+	u, err := url.Parse(withScheme(s))
 	if err != nil {
-		return errors.New("not a valid URL")
+		return errors.New("not a valid address, e.g. files.example.com")
 	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return errors.New("must start with http:// or https://")
-	}
-	if u.Host == "" {
-		return errors.New("missing host name, e.g. https://files.example.com")
-	}
-	if u.Path != "" && u.Path != "/" {
-		return errors.New("must not contain a path")
+	switch {
+	case u.Scheme != "http" && u.Scheme != "https":
+		return errors.New("only http:// and https:// addresses work here")
+	case u.Host == "":
+		return errors.New("missing host name, e.g. files.example.com")
+	case strings.ContainsAny(u.Host, " _"):
+		return errors.New("a host name cannot contain spaces or underscores")
+	case u.Path != "" && u.Path != "/":
+		return errors.New("just the address, without a path: https://files.example.com")
+	case u.User != nil:
+		return errors.New("no user name in the address, just https://files.example.com")
+	case !strings.Contains(u.Hostname(), ".") && u.Hostname() != "localhost":
+		return errors.New("that is not a full host name; did you mean " + u.Hostname() + ".example.com?")
 	}
 	return nil
+}
+
+// NormalizeBaseURL turns what someone typed into the URL GoDrop will hand out:
+// files.example.com becomes https://files.example.com, and a trailing slash
+// goes away. https is assumed because a bare name on the public internet
+// should be https, and the wizard asks about the certificate straight after.
+func NormalizeBaseURL(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	u, err := url.Parse(withScheme(s))
+	if err != nil {
+		return s
+	}
+	u.Host = strings.ToLower(u.Host)
+	u.Path = ""
+	return strings.TrimSuffix(u.String(), "/")
+}
+
+// withScheme adds https:// to an address that has no scheme, so that url.Parse
+// reads "files.example.com" as a host rather than as a path.
+func withScheme(s string) string {
+	if strings.Contains(s, "://") {
+		return s
+	}
+	if strings.HasPrefix(s, "//") {
+		return "https:" + s
+	}
+	return "https://" + s
 }
 
 // ValidateSize accepts a human readable size such as 100MB.
@@ -341,7 +416,24 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
-`, a.Image, composePorts(a), a.DataDir)
+%s`, a.Image, composePorts(a), composeVolume(a), composeVolumes(a))
+}
+
+// composeVolume is where the container's /data comes from: a directory when
+// one was chosen, and otherwise a volume docker creates and looks after.
+func composeVolume(a Answers) string {
+	if a.DataDir == "" {
+		return "godrop-data"
+	}
+	return a.DataDir
+}
+
+// composeVolumes declares the named volume, when there is one.
+func composeVolumes(a Answers) string {
+	if a.DataDir != "" {
+		return ""
+	}
+	return "\nvolumes:\n  godrop-data:\n"
 }
 
 // systemdCapabilities grants the one capability an unprivileged service needs
@@ -493,7 +585,9 @@ func NextStepsFor(goos string, a Answers) []string {
 	var steps []string
 	switch a.Deployment {
 	case DeployCompose:
-		steps = append(steps, "docker compose up -d")
+		if !a.Start {
+			steps = append(steps, "docker compose up -d")
+		}
 	case DeploySystemd:
 		steps = append(steps,
 			"sudo useradd --system --home "+a.DataDir+" --shell /usr/sbin/nologin godrop || true",
@@ -513,7 +607,9 @@ func NextStepsFor(goos string, a Answers) []string {
 	if needsProxy(a) {
 		steps = append(steps, "sudo caddy run --config Caddyfile   # or: sudo systemctl reload caddy")
 	}
-	steps = append(steps, "godrop doctor   # verify storage, firewall, TLS and reachability")
+	if !a.Start {
+		steps = append(steps, "godrop doctor   # verify storage, firewall, TLS and reachability")
+	}
 	return steps
 }
 

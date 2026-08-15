@@ -9,6 +9,43 @@ import (
 	"time"
 )
 
+// Manager describes an installation that belongs to something else.
+type Manager struct {
+	// Name is what owns it: dpkg, rpm, Homebrew, a container image.
+	Name string
+	// Update and Remove are the commands that do the job properly.
+	Update string
+	Remove string
+}
+
+// ManagedBy reports whether this installation belongs to a package manager,
+// which is a reason to refuse both updating and removing it by hand.
+func ManagedBy() (Manager, bool) {
+	binary, err := osExecutable()
+	if err != nil {
+		return Manager{}, false
+	}
+	name, update := managedBy(binary)
+	if name == "" {
+		return Manager{}, false
+	}
+	return Manager{Name: name, Update: update, Remove: removeCommand(name)}, true
+}
+
+// removeCommand is how each manager expects its packages to be removed.
+func removeCommand(manager string) string {
+	switch manager {
+	case "dpkg":
+		return "sudo apt remove godrop"
+	case "rpm":
+		return "sudo dnf remove godrop"
+	case "Homebrew":
+		return "brew uninstall godrop"
+	default:
+		return "docker rm -f godrop && docker rmi ghcr.io/" + Repo
+	}
+}
+
 // managedBy reports the package manager or platform that owns this binary,
 // with the command that updates it.
 //

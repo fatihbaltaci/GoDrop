@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/fatihbaltaci/GoDrop/internal/doctor"
 	"github.com/fatihbaltaci/GoDrop/internal/netcheck"
 	"github.com/fatihbaltaci/GoDrop/internal/telemetry"
 	"github.com/fatihbaltaci/GoDrop/internal/tokens"
@@ -23,6 +23,7 @@ import (
 func newInitCmd(build Build) *cobra.Command {
 	var (
 		answers        = wizard.Defaults()
+		setLimits      bool
 		nonInteractive bool
 		force          bool
 		skipExternal   bool
@@ -44,42 +45,61 @@ are skipped automatically when there is no terminal.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := newOutput(cmd)
 			answers.ExternalCheck = answers.ExternalCheck && !skipExternal
+			answers.DefaultLimits = !setLimits && !anyLimitFlagSet(cmd)
 
 			if outDir == "" {
-				outDir = "."
+				outDir = wizard.ConfigDir(os.Getenv, os.Geteuid() == 0)
 			}
 
-			var prompter wizard.Prompter
+			// The prompter is still used for the checks below, which may have
+			// to ask about sudo, so it outlives the questions themselves.
+			prompter := wizard.Prompter(&flagPrompter{out: out})
+			interactiveRun := !nonInteractive && interactive()
 			switch {
-			case nonInteractive || !interactive():
+			case interactiveRun:
+				printBanner(out, build)
+				collected, err := askInteractively(answers)
+				if err != nil {
+					if errors.Is(err, errCancelled) {
+						out.printf("\n  Cancelled. Nothing was written.\n")
+						return silentError{err}
+					}
+					return err
+				}
+				answers = collected
+				answers.Start = answers.Start || start
+				prompter = newInteractivePrompter(out)
+				echoAnswers(out, answers)
+			default:
 				if !nonInteractive {
 					out.skip("no interactive terminal detected, using defaults and flags")
 				}
-				prompter = &flagPrompter{out: out}
-			default:
-				printBanner(out, build)
-				prompter = newInteractivePrompter(out)
-			}
-
-			collected, err := wizard.Run(prompter, answers)
-			if err != nil {
-				if errors.Is(err, errCancelled) {
-					out.printf("\n  Cancelled. Nothing was written.\n")
-					return silentError{err}
+				// The flag prompter answers from flags and defaults, so the
+				// only error it can produce is an answer that fails its own
+				// validation, which is worth reporting as it is.
+				collected, err := wizard.Run(prompter, answers)
+				if err != nil {
+					return err
 				}
+				answers = collected
+				// Without a terminal, starting a service is something to be
+				// asked for explicitly rather than defaulted into.
+				answers.Start = start
+			}
+			wizard.Finalise(&answers)
+
+			// Everything the answers depend on is checked before a single file
+			// is written, because a wizard that fails after the last question
+			// has wasted the whole conversation.
+			if err := preflight(cmd.Context(), out, prompter, answers, outDir); err != nil {
 				return err
 			}
-			answers = collected
 
 			// The token is created before the files are written so that .env can
 			// carry it, and so a failure leaves nothing half-configured.
-			store, err := tokens.New(tokens.Path(answers.DataDir), nil)
+			plain, err := createToken(answers)
 			if err != nil {
-				return fmt.Errorf("prepare token store: %w", err)
-			}
-			plain, _, err := store.Create(answers.TokenName)
-			if err != nil {
-				return fmt.Errorf("create token: %w", err)
+				return err
 			}
 			answers.Token = plain
 
@@ -90,7 +110,7 @@ are skipped automatically when there is no terminal.`,
 				return err
 			}
 
-			if !answers.Telemetry {
+			if !answers.Telemetry && answers.DataDir != "" {
 				if err := telemetry.SetDisabled(answers.DataDir, true); err != nil {
 					return err
 				}
@@ -110,11 +130,11 @@ are skipped automatically when there is no terminal.`,
 			}
 
 			reportSetup(out, answers, written)
-			if err := maybeStart(cmd.Context(), out, answers, start); err != nil {
+			if err := maybeStart(cmd.Context(), out, build, answers, outDir); err != nil {
 				return err
 			}
 			verify(cmd.Context(), out, answers)
-			printFinish(out, answers)
+			printFinish(out, answers, outDir)
 			return nil
 		},
 	}
@@ -132,6 +152,9 @@ are skipped automatically when there is no terminal.`,
 	f.StringVar(&answers.Deployment, "deployment", answers.Deployment, "compose, systemd or env")
 	f.StringVar(&answers.TokenName, "token-name", answers.TokenName, "name for the generated token")
 	f.BoolVar(&answers.Telemetry, "telemetry", answers.Telemetry, "send the anonymous daily heartbeat")
+	// The wizard asks one question about the limits and only opens the four
+	// detailed ones when the answer is no; this is that answer, for a script.
+	f.BoolVar(&setLimits, "limits", false, "set the size, quota, retention and port questions yourself")
 	// --no-input is the conventional name for "never prompt"; the older spelling
 	// stays as a hidden alias so existing scripts keep working.
 	f.BoolVar(&nonInteractive, "no-input", false, "never prompt; use flags and defaults (for CI and agents)")
@@ -178,27 +201,141 @@ func reportSetup(out *output, a wizard.Answers, written []string) {
 	out.skip("stored as a SHA-256 digest in %s", tokens.Path(a.DataDir))
 }
 
-// maybeStart offers to bring the service up, because a setup wizard that ends
-// with "now go and run something else" is where most installs stall.
-func maybeStart(ctx context.Context, out *output, a wizard.Answers, forceStart bool) error {
-	if a.Deployment != wizard.DeployCompose {
+// maybeStart brings the service up, because a setup that ends with "now go and
+// run something else" is where most installs stall. Only the steps that need
+// root are left for the operator, and those are printed at the end.
+func maybeStart(ctx context.Context, out *output, build Build, a wizard.Answers, outDir string) error {
+	if !a.Start {
 		return nil
 	}
-	if !forceStart {
-		return nil
+	switch a.Deployment {
+	case wizard.DeployCompose:
+		if _, err := lookPath("docker"); err != nil {
+			out.warn("docker not found; start it yourself with: docker compose up -d")
+			return nil
+		}
+		out.heading("Starting")
+		if err := runCommand(ctx, "docker", "compose", "--project-directory", outDir, "up", "-d"); err != nil {
+			return fmt.Errorf("docker compose up failed: %w", err)
+		}
+		out.success("containers started")
+		runDoctor(ctx, out, build, a)
+	case wizard.DeploySystemd:
+		out.heading("Starting")
+		out.skip("installing a systemd unit needs root; the commands are at the end")
+	case wizard.DeployEnv:
+		out.heading("Starting")
+		out.skip("run it yourself: set -a && . ./.env && set +a && godrop serve")
 	}
-	if _, err := exec.LookPath("docker"); err != nil {
-		out.warn("docker not found; start it yourself with: docker compose up -d")
-		return nil
-	}
-	out.heading("Starting")
-	cmd := exec.CommandContext(ctx, "docker", "compose", "up", "-d")
-	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("docker compose up failed: %w", err)
-	}
-	out.success("containers started")
 	return nil
+}
+
+// anyLimitFlagSet reports whether a limit was given on the command line, which
+// is the same as asking for them to be set by hand.
+func anyLimitFlagSet(cmd *cobra.Command) bool {
+	for _, name := range []string{"max-file-size", "max-total-size", "retention", "port"} {
+		if cmd.Flags().Changed(name) {
+			return true
+		}
+	}
+	return false
+}
+
+// runDoctor runs the diagnosis the operator would have run next, so that the
+// setup ends with the answer rather than with the command that finds it.
+func runDoctor(ctx context.Context, out *output, build Build, a wizard.Answers) {
+	target := a.BaseURL
+	if target == "" {
+		target = "http://127.0.0.1:" + wizard.ListenPort(a)
+	}
+	out.heading("Checking it")
+	// A container takes a moment to answer, and a diagnosis run too early
+	// reports a problem that fixes itself a second later.
+	waitForHealth(ctx, target)
+
+	// In process rather than as a subprocess: the same code the doctor
+	// command runs, without depending on this binary still being where it was
+	// when setup started.
+	report := doctor.Run(ctx, doctor.Options{
+		TargetURL: target,
+		Token:     a.Token,
+		Version:   build.Version,
+		Offline:   true,
+	})
+	printReport(out, report)
+	if report.Failed() {
+		out.hint("run it again once everything is in place: godrop doctor --url %s", target)
+	}
+}
+
+// healthWait is how long a freshly started service is given to answer. It is
+// a variable so a test does not have to wait it out.
+var healthWait = 20 * time.Second
+
+// waitForHealth gives the service a few seconds to start answering.
+func waitForHealth(ctx context.Context, base string) {
+	client := &http.Client{Timeout: 2 * time.Second}
+	deadline := time.Now().Add(healthWait)
+	for time.Now().Before(deadline) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(base, "/")+"/healthz", nil)
+		if err != nil {
+			return
+		}
+		resp, err := client.Do(req)
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+}
+
+// createToken mints the first token. Under docker compose the data directory
+// belongs to a volume that does not exist yet, so the token goes into .env
+// rather than into a token file the host cannot write.
+func createToken(a wizard.Answers) (string, error) {
+	if a.DataDir == "" {
+		return tokens.Generate()
+	}
+	store, err := tokens.New(tokens.Path(a.DataDir), nil)
+	if err != nil {
+		return "", fmt.Errorf("prepare token store: %w", err)
+	}
+	plain, _, err := store.Create(a.TokenName)
+	if err != nil {
+		return "", fmt.Errorf("create token: %w", err)
+	}
+	return plain, nil
+}
+
+// askInteractively runs the whole wizard as one form. It is a variable so the
+// tests can drive the real form with scripted keystrokes instead of a
+// terminal.
+var askInteractively = func(a wizard.Answers) (wizard.Answers, error) {
+	return runForm(nil, nil, a)
+}
+
+// echoAnswers repeats what was chosen, because the form clears itself when it
+// finishes and the answers are what everything below refers to.
+func echoAnswers(out *output, a wizard.Answers) {
+	out.heading("Answers")
+	out.skip("%-22s %s", "public URL", displayValue(a.BaseURL))
+	out.skip("%-22s %s", "deployment", a.Deployment)
+	if wizard.AsksTLS(a) {
+		out.skip("%-22s %s", "certificate", a.TLS)
+	}
+	if a.DataDir != "" {
+		out.skip("%-22s %s", "data directory", a.DataDir)
+	} else {
+		out.skip("%-22s docker volume godrop-data", "data")
+	}
+	out.skip("%-22s %s per file, %s quota", "limits", a.MaxFileSize, displayValue(a.MaxTotalSize))
 }
 
 // verify runs the reachability checks that matter right after installation:
@@ -211,17 +348,25 @@ func verify(ctx context.Context, out *output, a wizard.Answers) {
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 
-	if netcheck.Listening(ctx, local) {
-		out.success("%-22s listening", local)
-	} else {
-		out.warn("%-22s nothing listening yet", local)
-		out.hint("start it, then run: godrop doctor")
+	// When the service was started here, doctor has already reported on the
+	// local side of it; repeating that is noise. What no machine can check
+	// about itself is whether the internet can reach it, and that is below.
+	if !a.Start {
+		if netcheck.Listening(ctx, local) {
+			out.success("%-22s listening", local)
+		} else {
+			out.warn("%-22s nothing listening yet", local)
+			out.hint("start it, then run: godrop doctor")
+		}
 	}
 
 	// With a certificate of its own GoDrop needs port 80 as well as 443, and
 	// an install that opens only 443 never gets past the challenge.
 	ports := wizard.PublicPorts(a)
 	for i, port := range ports {
+		if a.Start {
+			break // doctor looked at the firewall already
+		}
 		fw := checkFirewall(ctx, nil, port)
 		switch {
 		case !fw.Inspected:
@@ -294,10 +439,15 @@ func portList(ports []int) string {
 	}
 }
 
-func printFinish(out *output, a wizard.Answers) {
-	out.heading("Next")
-	for _, step := range wizard.NextSteps(a) {
-		out.command(step)
+func printFinish(out *output, a wizard.Answers, outDir string) {
+	if steps := wizard.NextSteps(a); len(steps) > 0 {
+		out.heading("Next")
+		if outDir != "." {
+			out.skip("from %s:", outDir)
+		}
+		for _, step := range steps {
+			out.command(step)
+		}
 	}
 	out.heading("Use it")
 	for _, ex := range wizard.CurlExamples(a) {

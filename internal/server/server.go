@@ -289,12 +289,17 @@ func requestScheme(r *http.Request) string {
 
 // ------------------------------------------------------------------ handlers
 
+// fileInfo is what an upload returns about one file.
+//
+// Only what the URL does not already say: the identifier, the extension and
+// therefore the media type are all in the URL, so repeating them is noise a
+// client has to read past. The size is real information, and so is an expiry
+// the upload asked for.
 type fileInfo struct {
-	URL  string `json:"url"`
-	ID   string `json:"id"`
-	Name string `json:"name,omitempty"`
-	Size int64  `json:"size"`
-	MIME string `json:"mime"`
+	URL       string `json:"url"`
+	Name      string `json:"name,omitempty"`
+	Size      int64  `json:"size"`
+	ExpiresAt string `json:"expires_at,omitempty"`
 }
 
 type uploadResponse struct {
@@ -399,7 +404,11 @@ func (s *Server) handlePutUpload(w http.ResponseWriter, r *http.Request, token s
 // storePart writes one uploaded stream and builds its public description.
 func (s *Server) storePart(r *http.Request, filename string, body io.Reader) (fileInfo, *storage.File, error) {
 	ext := SanitizeExt(filename)
-	file, err := s.store.Create(ext, body, s.cfg.MaxFileSize)
+	expires, err := s.expiryFor(r)
+	if err != nil {
+		return fileInfo{}, nil, err
+	}
+	file, err := s.store.CreateWithExpiry(ext, body, s.cfg.MaxFileSize, expires)
 	if err != nil {
 		return fileInfo{}, nil, err
 	}
@@ -408,14 +417,45 @@ func (s *Server) storePart(r *http.Request, filename string, body io.Reader) (fi
 	if slug != "" {
 		path = "/f/" + file.ID + "/" + slug
 	}
-	return fileInfo{
+	info := fileInfo{
 		URL:  s.cfg.PublicURL(requestScheme(r), r.Host, path),
-		ID:   file.Name(),
 		Name: strings.TrimSpace(filename),
 		Size: file.Size,
-		MIME: ContentType(ext, nil),
-	}, file, nil
+	}
+	if at, ok := storage.ExpiresAt(file.ID); ok {
+		info.ExpiresAt = at.Format(time.RFC3339)
+	}
+	return info, file, nil
 }
+
+// expiryFor reads the expiry an upload asked for, from the X-Expires-In
+// header or an ?expires= parameter: "30m", "12h", "7d".
+//
+// Retention is a maximum, not a suggestion, so an upload cannot ask to live
+// longer than the server keeps anything.
+func (s *Server) expiryFor(r *http.Request) (time.Time, error) {
+	raw := strings.TrimSpace(r.Header.Get("X-Expires-In"))
+	if raw == "" {
+		raw = strings.TrimSpace(r.URL.Query().Get("expires"))
+	}
+	if raw == "" {
+		return time.Time{}, nil
+	}
+	d, err := config.ParseDuration(raw)
+	switch {
+	case err != nil:
+		return time.Time{}, fmt.Errorf("%w: %s", errBadExpiry, err)
+	case d <= 0:
+		return time.Time{}, fmt.Errorf("%w: it has to be in the future", errBadExpiry)
+	}
+	if s.cfg.Retention > 0 && d > s.cfg.Retention {
+		d = s.cfg.Retention
+	}
+	return s.now().Add(d), nil
+}
+
+// errBadExpiry is a client mistake, not a server failure.
+var errBadExpiry = errors.New("invalid expiry")
 
 func (s *Server) writeUploadError(w http.ResponseWriter, err error) {
 	var maxErr *http.MaxBytesError
@@ -425,6 +465,9 @@ func (s *Server) writeUploadError(w http.ResponseWriter, err error) {
 			fmt.Sprintf("file exceeds the %s limit", config.FormatSize(s.cfg.MaxFileSize)))
 	case errors.Is(err, storage.ErrQuotaExceeded):
 		writeError(w, http.StatusInsufficientStorage, "storage quota exceeded")
+	case errors.Is(err, errBadExpiry):
+		writeError(w, http.StatusBadRequest,
+			err.Error()+`; use a duration such as "30m", "12h" or "7d"`)
 	default:
 		s.log.Error("upload failed", "err", err.Error())
 		writeError(w, http.StatusInternalServerError, "could not store file")
@@ -433,6 +476,11 @@ func (s *Server) writeUploadError(w http.ResponseWriter, err error) {
 
 func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	id, ext, name, ok := s.resolve(r)
+	// An expired file is gone as far as anyone asking is concerned, whether
+	// or not the sweep has caught up with it yet.
+	if ok && s.store.Expired(id) {
+		ok = false
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, "not found")
 		return

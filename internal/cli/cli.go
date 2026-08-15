@@ -82,6 +82,7 @@ no command of its own.`,
 		newTelemetryCmd(build),
 		newSkillCmd(build),
 		newUpdateCmd(build),
+		newUninstallCmd(build),
 		newHealthCmd(),
 		newVersionCmd(build),
 	)

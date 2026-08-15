@@ -338,7 +338,8 @@ func TestInitReportsADuplicateTokenName(t *testing.T) {
 
 func TestInitPropagatesAStartFailure(t *testing.T) {
 	fakeDocker(t, 1)
-	code, _, stderr := run(t, testBuild(), initArgs(t.TempDir(), t.TempDir(), "--start")...)
+	code, _, stderr := run(t, testBuild(),
+		initArgs(t.TempDir(), t.TempDir(), "--start", "--deployment", "compose")...)
 	if code == 0 {
 		t.Error("a failed start should be reported")
 	}

@@ -24,6 +24,15 @@ paths:
         Send `multipart/form-data` with one or more parts named `file`. The
         upload is atomic: if any part is rejected, previously written parts of
         the same request are deleted.
+      parameters:
+        - name: X-Expires-In
+          in: header
+          required: false
+          description: >
+            Delete the file after this long: 30m, 12h, 7d, 30d. Capped at the
+            instance's retention period when it has one. ?expires= does the
+            same thing for clients that cannot set a header.
+          schema: { type: string, example: 7d }
       requestBody:
         required: true
         content:
@@ -61,6 +70,11 @@ paths:
           required: true
           schema: { type: string }
           example: report.pdf
+        - name: X-Expires-In
+          in: header
+          required: false
+          description: "Delete the file after this long: 30m, 12h, 7d, 30d."
+          schema: { type: string, example: 24h }
       requestBody:
         required: true
         content:
@@ -95,7 +109,7 @@ paths:
         - name: dl
           in: query
           required: false
-          description: Any value forces `Content-Disposition: attachment`.
+          description: "Any value forces `Content-Disposition: attachment`."
           schema: { type: string }
       responses:
         "200":
@@ -218,15 +232,17 @@ components:
   schemas:
     FileInfo:
       type: object
-      required: [url, id, size, mime]
+      required: [url, size]
       properties:
         url: { type: string, format: uri }
-        id:
-          type: string
-          description: Stored name (`<id>.<ext>`), usable with the short URL form.
         name: { type: string, description: Original file name as sent by the client. }
         size: { type: integer }
-        mime: { type: string }
+        expires_at:
+          type: string
+          format: date-time
+          description: >
+            When the file deletes itself, present only when the upload asked
+            for an expiry with X-Expires-In or ?expires=.
     UploadResponse:
       type: object
       required: [url, files]

@@ -152,7 +152,7 @@ func TestSlugFallsBackToTheStoredName(t *testing.T) {
 	// A name that sanitises to nothing still produces a usable URL.
 	h := newHarness(t, nil)
 	got := h.uploadOK(t, [2]string{"🙂.png", "bytes"})
-	id, ext := storage.SplitName(got.Files[0].ID)
+	id, ext := storage.SplitName(storedName(t, got.Files[0].URL))
 	if !strings.HasSuffix(got.URL, "/f/"+storage.JoinName(id, ext)) {
 		t.Errorf("url = %q, want the short form when the name has no usable characters", got.URL)
 	}
@@ -215,12 +215,84 @@ func TestOversizedNonFileFieldCountsAgainstTheRequestCap(t *testing.T) {
 func TestCosmeticNameWithAnUnusableExtensionIs404(t *testing.T) {
 	h := newHarness(t, nil)
 	got := h.uploadOK(t, [2]string{"photo.jpg", "bytes"})
-	id, _ := storage.SplitName(got.Files[0].ID)
+	id, _ := storage.SplitName(storedName(t, got.Files[0].URL))
 	for _, name := range []string{"photo.abcdefghijk", "photo.jp g", "photo.şey"} {
 		resp := h.do(t, http.MethodGet, h.URL+"/f/"+id+"/"+name, "")
 		resp.Body.Close()
 		if resp.StatusCode != http.StatusNotFound {
 			t.Errorf("/f/<id>/%s = %d, want 404", name, resp.StatusCode)
 		}
+	}
+}
+
+// ------------------------------------------------------------ per-file expiry
+
+func TestAnUploadCanSetItsOwnExpiry(t *testing.T) {
+	h := newHarness(t, nil)
+	got := h.uploadWithHeaders(t, map[string]string{"X-Expires-In": "24h"},
+		[2]string{"note.txt", "gone tomorrow"})
+	if got.Files[0].ExpiresAt == "" {
+		t.Fatal("the response should say when it expires")
+	}
+	at, err := time.Parse(time.RFC3339, got.Files[0].ExpiresAt)
+	if err != nil {
+		t.Fatalf("expires_at = %q: %v", got.Files[0].ExpiresAt, err)
+	}
+	if wait := time.Until(at); wait < 23*time.Hour || wait > 25*time.Hour {
+		t.Errorf("expires in %s, want about a day", wait)
+	}
+	// Before the moment passes it is an ordinary file.
+	resp := h.do(t, http.MethodGet, got.URL, "")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("download = %d, want it to work before it expires", resp.StatusCode)
+	}
+}
+
+func TestAnExpiredFileIsGone(t *testing.T) {
+	// Stored with an expiry already in the past, which is what the sweep and
+	// the download handler both have to notice.
+	h := newHarness(t, nil)
+	file, err := h.store.CreateWithExpiry("txt", strings.NewReader("brief"),
+		h.cfg.MaxFileSize, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := h.do(t, http.MethodGet, h.URL+"/f/"+file.Name(), "")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("download after expiry = %d, want 404", resp.StatusCode)
+	}
+
+	// And the sweep removes it even with no retention configured.
+	removed, _, err := h.store.Cleanup(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 1 {
+		t.Errorf("cleanup removed %d files, want the expired one", removed)
+	}
+}
+
+func TestAnImpossibleExpiryIsRefused(t *testing.T) {
+	h := newHarness(t, nil)
+	for _, value := range []string{"soon", "-1h", "0"} {
+		resp := h.uploadRaw(t, map[string]string{"X-Expires-In": value}, [2]string{"a.txt", "x"})
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("X-Expires-In: %s gives %d, want 400", value, resp.StatusCode)
+		}
+	}
+}
+
+func TestRetentionCapsWhatAnUploadCanAskFor(t *testing.T) {
+	h := newHarness(t, func(cfg *config.Config) { cfg.Retention = 48 * time.Hour })
+	got := h.uploadWithHeaders(t, map[string]string{"X-Expires-In": "30d"}, [2]string{"a.txt", "x"})
+	at, err := time.Parse(time.RFC3339, got.Files[0].ExpiresAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wait := time.Until(at); wait > 49*time.Hour {
+		t.Errorf("expires in %s, want it capped at the retention period", wait)
 	}
 }

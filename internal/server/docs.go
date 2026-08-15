@@ -92,16 +92,26 @@ Response (201):
       "files": [
         {
           "url": "%s/f/20260815-143022-8f4e.../photo.jpg",
-          "id": "20260815-143022-8f4e....jpg",
           "name": "photo.jpg",
-          "size": 12345,
-          "mime": "image/jpeg"
+          "size": 12345
         }
       ]
     }
 
 Read "url" for the single-file case; read "files" when you sent several. Both
-fields are always present, so no branching is needed.
+fields are always present, so no branching is needed. The identifier and the
+media type are part of the URL, so they are not repeated.
+
+## Expiring uploads
+
+Send X-Expires-In (or ?expires=) with a duration such as 30m, 12h, 7d, and the
+file deletes itself when it runs out:
+
+    curl -sS -X POST -H "Authorization: Bearer $GODROP_TOKEN" \
+      -H "X-Expires-In: 7d" -F "file=@invoice.pdf" %s/upload
+
+The response then carries "expires_at" in RFC 3339. Retention is a maximum: a
+request for longer than this instance keeps anything is capped at it.
 
 ## Upload several files
 
@@ -160,7 +170,7 @@ Returns 204 on success, 404 if it was already gone.
 - Machine-readable schema: %s/openapi.yaml
 `,
 		base, s.version,
-		base, base, base, base, s.cfg.MaxFilesPerRequest, base, base, base,
+		base, base, base, base, base, s.cfg.MaxFilesPerRequest, base, base, base,
 		config.FormatSize(s.cfg.MaxFileSize), s.cfg.MaxFilesPerRequest, quota, retention,
 		base, base, base)
 	return b.String()

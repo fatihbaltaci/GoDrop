@@ -135,6 +135,19 @@ jobs:
       - name: Shellcheck the installer and package scripts
         run: shellcheck install.sh packaging/*.sh scripts/*.sh
 
+      # The API description is served to agents and read by generators. An
+      # invalid document is worse than none, and nothing else notices.
+      - name: Check the OpenAPI document
+        run: |
+          python3 - <<'PY'
+          import sys, yaml
+          spec = yaml.safe_load(open("internal/server/assets/openapi.yaml"))
+          missing = [k for k in ("openapi", "info", "paths", "components") if k not in spec]
+          if missing:
+              sys.exit(f"openapi.yaml is missing {missing}")
+          print(f"openapi {spec['openapi']}, {len(spec['paths'])} paths")
+          PY
+
       # The release workflow only ever runs on a tag, so this is the one thing
       # standing between a typo in it and a failed release.
       - name: Check the workflows

@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -32,8 +33,14 @@ var (
 	ErrInvalidID     = errors.New("invalid file id")
 )
 
-// idPattern matches "<YYYYMMDD>-<HHMMSS>-<32 lowercase hex>".
-var idPattern = regexp.MustCompile(`^(\d{8})-(\d{6})-[0-9a-f]{32}$`)
+// idPattern matches "<YYYYMMDD>-<HHMMSS>-<32 lowercase hex>", optionally
+// followed by "-e<expiry>", where the expiry is the unix second the file may
+// be deleted, in base 36.
+//
+// The expiry lives in the identifier because the identifier is the index:
+// putting it anywhere else would mean a database, and a lookup that consults
+// two things can find them disagreeing.
+var idPattern = regexp.MustCompile(`^(\d{8})-(\d{6})-[0-9a-f]{32}(-e[0-9a-z]{1,9})?$`)
 
 // idLayout is the time layout used for the identifier prefix (always UTC).
 const idLayout = "20060102-150405"
@@ -146,13 +153,19 @@ func (s *Store) Writable() error {
 // ErrTooLarge. When a quota is configured and the write would exceed it, the
 // write is aborted with ErrQuotaExceeded. Partial writes never survive.
 func (s *Store) Create(ext string, r io.Reader, maxSize int64) (*File, error) {
+	return s.CreateWithExpiry(ext, r, maxSize, time.Time{})
+}
+
+// CreateWithExpiry stores a file that deletes itself at the given time. A zero
+// time means the file stays until the retention sweep or somebody deletes it.
+func (s *Store) CreateWithExpiry(ext string, r io.Reader, maxSize int64, expires time.Time) (*File, error) {
 	limit, err := s.reserve(maxSize)
 	if err != nil {
 		return nil, err
 	}
 	defer s.release(limit)
 
-	id, f, err := s.createUnique(ext)
+	id, f, err := s.createUnique(ext, expires)
 	if err != nil {
 		return nil, err
 	}
@@ -240,9 +253,9 @@ func (s *Store) isWriting(path string) bool {
 
 // createUnique reserves a fresh identifier by creating the target file
 // exclusively, so two concurrent uploads can never claim the same name.
-func (s *Store) createUnique(ext string) (string, *os.File, error) {
+func (s *Store) createUnique(ext string, expires time.Time) (string, *os.File, error) {
 	for attempt := 0; attempt < 5; attempt++ {
-		id, err := s.newID()
+		id, err := s.newID(expires)
 		if err != nil {
 			return "", nil, err
 		}
@@ -328,12 +341,35 @@ func (s *Store) pathFor(id, ext string) string {
 	return filepath.Join(s.root, id[0:4], id[4:6], id[6:8], JoinName(id, ext))
 }
 
-func (s *Store) newID() (string, error) {
+func (s *Store) newID(expires time.Time) (string, error) {
 	buf := make([]byte, 16)
 	if _, err := s.randRead(buf); err != nil {
 		return "", fmt.Errorf("generate id: %w", err)
 	}
-	return s.now().UTC().Format(idLayout) + "-" + hex.EncodeToString(buf), nil
+	id := s.now().UTC().Format(idLayout) + "-" + hex.EncodeToString(buf)
+	if !expires.IsZero() {
+		id += "-e" + strconv.FormatInt(expires.UTC().Unix(), 36)
+	}
+	return id, nil
+}
+
+// ExpiresAt reports when an identifier says its file may be deleted, and
+// whether it says so at all.
+func ExpiresAt(id string) (time.Time, bool) {
+	match := idPattern.FindStringSubmatch(id)
+	if match == nil || match[3] == "" {
+		return time.Time{}, false
+	}
+	// At most nine base-36 digits, which is well inside an int64, so the
+	// pattern has already ruled out everything ParseInt could object to.
+	seconds, _ := strconv.ParseInt(strings.TrimPrefix(match[3], "-e"), 36, 64)
+	return time.Unix(seconds, 0).UTC(), true
+}
+
+// Expired reports whether an identifier's own expiry has passed.
+func (s *Store) Expired(id string) bool {
+	at, ok := ExpiresAt(id)
+	return ok && !s.now().Before(at)
 }
 
 // ValidID reports whether s is a well-formed GoDrop identifier.
@@ -367,10 +403,12 @@ const MaxExtLen = 10
 // alone would eventually sweep those away, revoking every token or quietly
 // turning telemetry back on. Files still being written are left alone too.
 func (s *Store) Cleanup(age time.Duration) (removed int, freed int64, err error) {
-	if age <= 0 {
-		return 0, 0, nil
-	}
+	// Even with no retention there is work: a file whose own identifier says
+	// it has expired is deleted whatever the global rule says.
 	cutoff := s.now().Add(-age)
+	if age <= 0 {
+		cutoff = time.Time{}
+	}
 	var dirs []string
 	walkErr := filepath.WalkDir(s.root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -389,7 +427,9 @@ func (s *Store) Cleanup(age time.Duration) (removed int, freed int64, err error)
 		if err != nil {
 			return err
 		}
-		if info.ModTime().After(cutoff) {
+		id, _ := SplitName(d.Name())
+		tooOld := !cutoff.IsZero() && !info.ModTime().After(cutoff)
+		if !tooOld && !s.Expired(id) {
 			return nil
 		}
 		// isUpload has established that this is a regular file at the exact

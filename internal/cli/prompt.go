@@ -60,11 +60,9 @@ func (p *huhPrompter) Select(label, desc string, options []wizard.Option, def st
 	value := def
 	opts := make([]huh.Option[string], 0, len(options))
 	for _, o := range options {
-		label := o.Label
-		if o.Desc != "" {
-			label = fmt.Sprintf("%-18s %s", o.Label, o.Desc)
-		}
-		opts = append(opts, huh.NewOption(label, o.Value))
+		// The label is the whole option: huh puts every option on one line, so
+		// a description appended here reads as part of the choice itself.
+		opts = append(opts, huh.NewOption(o.Label, o.Value))
 	}
 	field := huh.NewSelect[string]().Title(label).Options(opts...).Value(&value)
 	if desc != "" {

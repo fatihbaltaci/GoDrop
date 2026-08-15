@@ -692,3 +692,36 @@ func requirePOSIXModes(t *testing.T) {
 		t.Skip("file modes are not POSIX bits on Windows")
 	}
 }
+
+func TestGenerateMakesAUsableTokenWithoutAStore(t *testing.T) {
+	// Under docker compose the token has nowhere to be stored on the host: it
+	// goes into .env and the server reads it from the environment.
+	first, err := Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Error("two generated tokens should differ")
+	}
+	if !strings.HasPrefix(first, Prefix) || len(first) != len(Prefix)+32 {
+		t.Errorf("token = %q, want %s and 128 bits of hex", first, Prefix)
+	}
+	// It has to be accepted the way an environment token is.
+	store, err := New(Path(t.TempDir()), []string{first})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.Verify(first); !ok {
+		t.Error("a generated token should verify")
+	}
+}
+
+func TestGenerateReportsAFailingRandomSource(t *testing.T) {
+	if _, err := generate(func([]byte) (int, error) { return 0, errors.New("no entropy") }); err == nil {
+		t.Error("a token that is not random must not be handed out")
+	}
+}

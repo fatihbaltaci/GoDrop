@@ -34,7 +34,7 @@ func TestUploadedNameCannotEscapeTheDataDirectory(t *testing.T) {
 	}
 	for _, name := range hostile {
 		got := h.uploadOK(t, [2]string{name, "payload"})
-		id, ext := storage.SplitName(got.Files[0].ID)
+		id, ext := storage.SplitName(storedName(t, got.Files[0].URL))
 		path, err := h.store.Path(id, ext)
 		if err != nil {
 			t.Fatalf("%q produced an unusable identifier: %v", name, err)
@@ -124,7 +124,7 @@ func TestExtensionIsSanitisedBeforeStorage(t *testing.T) {
 	}
 	for name, wantExt := range cases {
 		got := h.uploadOK(t, [2]string{name, "x"})
-		_, ext := storage.SplitName(got.Files[0].ID)
+		_, ext := storage.SplitName(storedName(t, got.Files[0].URL))
 		if ext != wantExt {
 			t.Errorf("%q stored with extension %q, want %q", name, ext, wantExt)
 		}
@@ -183,7 +183,7 @@ func TestCosmeticNameCannotChangeTheDownloadedFileType(t *testing.T) {
 	// /f/<id>/setup.exe hoping the browser saves it as an executable.
 	h := newHarness(t, nil)
 	got := h.uploadOK(t, [2]string{"photo.jpg", "MZ\x90\x00 executable"})
-	id, _ := storage.SplitName(got.Files[0].ID)
+	id, _ := storage.SplitName(storedName(t, got.Files[0].URL))
 
 	for _, name := range []string{"setup.exe", "invoice.pdf", "run.sh", "photo.jpeg", "photo"} {
 		resp := h.do(t, http.MethodGet, h.URL+"/f/"+id+"/"+name, "")
@@ -303,7 +303,7 @@ func TestIdentifiersAreUnpredictable(t *testing.T) {
 	suffixes := make(map[string]bool, n)
 	for range n {
 		got := h.uploadOK(t, [2]string{"a.txt", "x"})
-		id, _ := storage.SplitName(got.Files[0].ID)
+		id, _ := storage.SplitName(storedName(t, got.Files[0].URL))
 		if seen[id] {
 			t.Fatalf("identifier %q was issued twice", id)
 		}
@@ -321,7 +321,7 @@ func TestIdentifiersAreUnpredictable(t *testing.T) {
 func TestGuessingAnIdentifierReturns404(t *testing.T) {
 	h := newHarness(t, nil)
 	got := h.uploadOK(t, [2]string{"photo.jpg", "bytes"})
-	id, _ := storage.SplitName(got.Files[0].ID)
+	id, _ := storage.SplitName(storedName(t, got.Files[0].URL))
 
 	// Neighbouring identifiers (same timestamp, one hex digit apart) must not
 	// resolve. There is no listing endpoint either.

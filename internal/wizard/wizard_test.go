@@ -22,12 +22,20 @@ func TestValidateBaseURL(t *testing.T) {
 			t.Errorf("ValidateBaseURL(%q) = %v, want nil", v, err)
 		}
 	}
+	// A bare host name is what people type, so it is accepted and normalised.
+	for _, v := range []string{"files.example.com", "FILES.example.com", "files.example.com/"} {
+		if err := ValidateBaseURL(v); err != nil {
+			t.Errorf("ValidateBaseURL(%q) = %v, want a bare host accepted", v, err)
+		}
+	}
 	invalid := map[string]string{
-		"files.example.com":              "http",
 		"ftp://files.example.com":        "http",
 		"https://":                       "host",
 		"https://files.example.com/path": "path",
 		"http://a b":                     "",
+		"https://user@files.example.com": "user name",
+		"godrop":                         "example.com",
+		"files_example.com":              "underscore",
 	}
 	for v, want := range invalid {
 		err := ValidateBaseURL(v)
@@ -338,15 +346,26 @@ func TestWriteReportsFailures(t *testing.T) {
 
 func TestNextStepsMatchTheDeploymentStyle(t *testing.T) {
 	t.Parallel()
-	compose := strings.Join(NextStepsFor("linux", withDeployment(DeployCompose, "https://f.example.com")), "\n")
+	behindProxy := withDeployment(DeployCompose, "https://f.example.com")
+	behindProxy.Start = false
+	behindProxy.TLS = TLSProxy
+	compose := strings.Join(NextStepsFor("linux", behindProxy), "\n")
 	if !strings.Contains(compose, "docker compose up -d") || !strings.Contains(compose, "godrop doctor") {
 		t.Errorf("compose steps = %s", compose)
 	}
 	if !strings.Contains(compose, "caddy") {
-		t.Error("an https deployment should mention starting the proxy")
+		t.Error("a deployment that relies on a proxy should mention starting it")
+	}
+	// When GoDrop has the certificate itself there is no proxy to start.
+	itsOwn := behindProxy
+	itsOwn.TLS = TLSAuto
+	if strings.Contains(strings.Join(NextStepsFor("linux", itsOwn), "\n"), "caddy") {
+		t.Error("nothing should mention caddy when GoDrop serves https itself")
 	}
 
-	systemd := strings.Join(NextStepsFor("linux", withDeployment(DeploySystemd, "")), "\n")
+	systemdAnswers := withDeployment(DeploySystemd, "")
+	systemdAnswers.Start = false
+	systemd := strings.Join(NextStepsFor("linux", systemdAnswers), "\n")
 	for _, want := range []string{"useradd", "systemctl enable --now godrop", "/etc/godrop/godrop.env"} {
 		if !strings.Contains(systemd, want) {
 			t.Errorf("systemd steps should include %q:\n%s", want, systemd)
@@ -550,10 +569,12 @@ func (p *scriptedPrompter) Confirm(_, _ string, def bool) (bool, error) {
 func TestRunCollectsEveryAnswer(t *testing.T) {
 	t.Parallel()
 	dataDir := filepath.Join(absDir, "custom")
+	// In order: public URL, data directory, then the four limit questions the
+	// "no" to the recommended limits opens up.
 	p := &scriptedPrompter{
 		inputs:   []string{"https://files.example.com", dataDir, "250MB", "50GB", "30d", "9000"},
-		selects:  []string{TLSNone, DeploySystemd},
-		confirms: []bool{false, false},
+		selects:  []string{DeploySystemd, TLSNone},
+		confirms: []bool{false, false, false},
 	}
 	got, err := Run(p, Defaults())
 	if err != nil {
@@ -569,11 +590,11 @@ func TestRunCollectsEveryAnswer(t *testing.T) {
 		got.Port != want.Port || got.Deployment != want.Deployment || got.TLS != want.TLS {
 		t.Errorf("answers = %+v, want %+v", got, want)
 	}
-	if got.Telemetry || got.ExternalCheck {
+	if got.Telemetry || got.Start {
 		t.Error("both confirmations answered no")
 	}
-	if len(p.sections) != 5 {
-		t.Errorf("sections = %v, want the wizard grouped into five steps", p.sections)
+	if len(p.sections) != 6 {
+		t.Errorf("sections = %v, want one heading per step", p.sections)
 	}
 }
 
@@ -583,10 +604,12 @@ func TestRunKeepsDefaultsWhenAnswersAreEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if got.DataDir != absDir || got.MaxFileSize != "100MB" || got.Deployment != DeployCompose {
+	// Compose keeps its files in a volume, so the default answers leave no
+	// host directory behind.
+	if got.DataDir != "" || got.MaxFileSize != "100MB" || got.Deployment != DeployCompose {
 		t.Errorf("answers = %+v, want the defaults", got)
 	}
-	if !got.Telemetry || !got.ExternalCheck {
+	if !got.Telemetry || !got.Start {
 		t.Error("the confirmations default to yes")
 	}
 }
@@ -604,9 +627,10 @@ func TestRunStopsAtTheFirstFailure(t *testing.T) {
 
 func TestRunPropagatesCancellationAtEveryStep(t *testing.T) {
 	t.Parallel()
-	// Ten questions: base URL, data dir, max file, quota, retention,
-	// certificate, port, deployment, telemetry, external check.
-	for stage := range 10 {
+	// With the defaults there are five: public URL, deployment, the
+	// recommended limits, start it now, and the heartbeat. Compose keeps its
+	// files in a volume, so there is no data directory to ask about.
+	for stage := range 5 {
 		p := &scriptedPrompter{err: errCancelledForTest, failAfter: stage}
 		if _, err := Run(p, Defaults()); err == nil {
 			t.Fatalf("a cancelled prompt at step %d must abort the wizard", stage)
@@ -666,29 +690,60 @@ func TestDeploymentOptionsMatchThePlatform(t *testing.T) {
 
 func TestDefaultDataDirPerPlatform(t *testing.T) {
 	t.Parallel()
-	if got := DefaultDataDir("linux", func(string) string { return "" }); got != "/var/lib/godrop" {
-		t.Errorf("linux data dir = %q", got)
+	none := func(string) string { return "" }
+	if got := DefaultDataDir("linux", none, true); got != "/var/lib/godrop" {
+		t.Errorf("linux data dir as root = %q", got)
 	}
-	if got := DefaultDataDir("darwin", func(string) string { return "" }); got != "/var/lib/godrop" {
-		t.Errorf("darwin data dir = %q", got)
+	if got := DefaultDataDir("darwin", none, true); got != "/var/lib/godrop" {
+		t.Errorf("darwin data dir as root = %q", got)
 	}
 	got := DefaultDataDir("windows", func(key string) string {
 		if key == "ProgramData" {
 			return `C:\ProgramData`
 		}
 		return ""
-	})
+	}, false)
 	if got != filepath.Join(`C:\ProgramData`, "GoDrop") {
 		t.Errorf("windows data dir = %q", got)
 	}
-	if got := DefaultDataDir("windows", func(string) string { return "" }); got != `C:\ProgramData\GoDrop` {
+	if got := DefaultDataDir("windows", none, false); got != `C:\ProgramData\GoDrop` {
 		t.Errorf("windows fallback = %q", got)
+	}
+}
+
+func TestWithoutRootTheDataDirectoryIsSomewhereWritable(t *testing.T) {
+	t.Parallel()
+	// Suggesting /var/lib/godrop to someone who cannot create it is how a
+	// wizard gets to the last question and then fails on a mkdir.
+	env := func(key string) string {
+		switch key {
+		case "XDG_DATA_HOME":
+			return "/home/ubuntu/.data"
+		case "HOME":
+			return "/home/ubuntu"
+		}
+		return ""
+	}
+	if got := DefaultDataDir("linux", env, false); got != "/home/ubuntu/.data/godrop" {
+		t.Errorf("data dir = %q, want the XDG location", got)
+	}
+	home := func(key string) string {
+		if key == "HOME" {
+			return "/home/ubuntu"
+		}
+		return ""
+	}
+	if got := DefaultDataDir("linux", home, false); got != "/home/ubuntu/.local/share/godrop" {
+		t.Errorf("data dir = %q, want the home location", got)
+	}
+	if got := DefaultDataDir("linux", func(string) string { return "" }, false); got != "/var/lib/godrop" {
+		t.Errorf("data dir = %q, want the system location when there is no home", got)
 	}
 }
 
 func TestDefaultsUseThisPlatform(t *testing.T) {
 	t.Parallel()
-	if Defaults().DataDir != DefaultDataDir(runtime.GOOS, os.Getenv) {
+	if Defaults().DataDir != DefaultDataDir(runtime.GOOS, os.Getenv, os.Geteuid() == 0) {
 		t.Error("Defaults should use this platform's data directory")
 	}
 }
@@ -834,8 +889,8 @@ func TestRunAsksForACertificateWhenYouBringYourOwn(t *testing.T) {
 		}
 	}
 	p := &scriptedPrompter{
-		inputs:  []string{"https://files.example.com", absDir, "100MB", "", "", cert, key},
-		selects: []string{TLSFile, DeploySystemd},
+		inputs:  []string{"https://files.example.com", cert, key, absDir},
+		selects: []string{DeploySystemd, TLSFile},
 	}
 	got, err := Run(p, Defaults())
 	if err != nil {
@@ -861,15 +916,289 @@ func TestRunPropagatesCancellationWhileAskingForTheCertificate(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// Stage 6 aborts on the certificate, stage 7 on the key.
-	for stage := 6; stage <= 7; stage++ {
+	// Stage 2 aborts on the certificate, stage 3 on the key.
+	for stage := 2; stage <= 3; stage++ {
 		p := &scriptedPrompter{
-			inputs:  []string{"https://files.example.com", absDir, "100MB", "", "", cert, key},
-			selects: []string{TLSFile, DeploySystemd},
+			inputs:  []string{"https://files.example.com", cert, key, absDir},
+			selects: []string{DeploySystemd, TLSFile},
 			err:     errCancelledForTest, failAfter: stage,
 		}
 		if _, err := Run(p, Defaults()); err == nil {
 			t.Fatalf("a cancelled prompt at step %d must abort the wizard", stage)
 		}
+	}
+}
+
+func TestNormalizeBaseURL(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		"":                              "",
+		"  ":                            "",
+		"files.gurubase.io":             "https://files.gurubase.io",
+		"FILES.Gurubase.io":             "https://files.gurubase.io",
+		"files.gurubase.io/":            "https://files.gurubase.io",
+		"https://files.gurubase.io":     "https://files.gurubase.io",
+		"http://files.gurubase.io":      "http://files.gurubase.io",
+		"http://localhost:8747":         "http://localhost:8747",
+		"//files.gurubase.io":           "https://files.gurubase.io",
+		"https://files.gurubase.io:443": "https://files.gurubase.io:443",
+	}
+	for in, want := range cases {
+		if got := NormalizeBaseURL(in); got != want {
+			t.Errorf("NormalizeBaseURL(%q) = %q, want %q", in, got, want)
+		}
+	}
+	// Something url.Parse refuses comes back untouched, for the validator to
+	// report rather than the normaliser to mangle.
+	if got := NormalizeBaseURL("https://a b"); got != "https://a b" {
+		t.Errorf("NormalizeBaseURL = %q", got)
+	}
+}
+
+func TestTheCertificateQuestionIsOnlyAskedWhenItHasAnAnswer(t *testing.T) {
+	t.Parallel()
+	a := Defaults()
+	if AsksTLS(a) {
+		t.Error("without a public URL there is nothing to get a certificate for")
+	}
+	a.BaseURL = "http://nas.local:8747"
+	if AsksTLS(a) {
+		t.Error("an http:// address has already answered the question")
+	}
+	a.BaseURL = "https://files.example.com"
+	if !AsksTLS(a) {
+		t.Error("an https address needs a certificate from somewhere")
+	}
+}
+
+func TestRunSkipsTheCertificateQuestionWithoutAPublicURL(t *testing.T) {
+	t.Parallel()
+	p := &scriptedPrompter{}
+	got, err := Run(p, Defaults())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got.TLS != TLSNone {
+		t.Errorf("TLS = %q, want none", got.TLS)
+	}
+	for _, section := range p.sections {
+		if section == "HTTPS" {
+			t.Errorf("sections = %v, want no HTTPS step", p.sections)
+		}
+	}
+}
+
+// ------------------------------------------------------- the question list
+
+func TestTheQuestionListIsShortAndDependsOnTheAnswers(t *testing.T) {
+	t.Parallel()
+	// A local run with the recommended limits: as few questions as the wizard
+	// can get away with.
+	a := Defaults()
+	asked := applicable(QuestionsFor("linux"), a)
+	if len(asked) > 5 {
+		t.Errorf("a local run asks %d questions (%v), want a handful", len(asked), asked)
+	}
+	for _, label := range asked {
+		if label == "Certificate" || label == "Maximum file size" {
+			t.Errorf("%q should not be asked with defaults and no public URL", label)
+		}
+	}
+
+	// A public address with docker compose: a certificate question, and no
+	// data directory, because docker keeps the files in a volume.
+	a.BaseURL = "https://files.example.com"
+	a.Deployment = DeployCompose
+	asked = applicable(QuestionsFor("linux"), a)
+	if !contains(asked, "Certificate") {
+		t.Errorf("questions = %v, want the certificate question", asked)
+	}
+	if contains(asked, "Data directory") {
+		t.Errorf("questions = %v, want no data directory under compose", asked)
+	}
+
+	// systemd puts the files on this machine, so it has to be asked.
+	a.Deployment = DeploySystemd
+	if !contains(applicable(QuestionsFor("linux"), a), "Data directory") {
+		t.Error("a systemd service needs a directory to write into")
+	}
+
+	// Setting the limits by hand opens four more questions.
+	a.DefaultLimits = false
+	a.TLS = TLSProxy
+	asked = applicable(QuestionsFor("linux"), a)
+	for _, want := range []string{"Maximum file size", "Storage quota", "Delete files after", "Listen port"} {
+		if !contains(asked, want) {
+			t.Errorf("questions = %v, want %q", asked, want)
+		}
+	}
+	// Serving TLS fixes the port, so that question goes away again.
+	a.TLS = TLSAuto
+	if contains(applicable(QuestionsFor("linux"), a), "Listen port") {
+		t.Error("the port is 443 when GoDrop serves TLS; there is nothing to ask")
+	}
+}
+
+func TestEveryQuestionCanAnswerForItself(t *testing.T) {
+	t.Parallel()
+	a := Defaults()
+	for _, q := range QuestionsFor("linux") {
+		if q.Label == "" || q.Section == "" {
+			t.Errorf("question %+v needs a label and a section", q)
+		}
+		if q.Describe(a) == "" {
+			t.Errorf("%q has no description; every question explains itself", q.Label)
+		}
+		switch q.Kind {
+		case KindConfirm:
+			if q.Bool == nil {
+				t.Errorf("%q is a confirm with nowhere to put the answer", q.Label)
+			}
+		case KindSelect:
+			if q.Options == nil || len(q.Options(a)) == 0 {
+				t.Errorf("%q is a select with no options", q.Label)
+			}
+			fallthrough
+		case KindInput:
+			if q.Str == nil {
+				t.Errorf("%q has nowhere to put the answer", q.Label)
+			}
+		}
+	}
+}
+
+func TestAQuestionWithoutADescriptionSaysNothing(t *testing.T) {
+	t.Parallel()
+	if got := (Question{Label: "x"}).Describe(Defaults()); got != "" {
+		t.Errorf("Describe = %q, want nothing", got)
+	}
+}
+
+func TestFinaliseClearsWhatWasNeverAsked(t *testing.T) {
+	t.Parallel()
+	a := Defaults()
+	a.Deployment = DeployCompose
+	a.DataDir = "/var/lib/godrop"
+	a.BaseURL = "files.example.com"
+	Finalise(&a)
+	if a.DataDir != "" {
+		t.Errorf("DataDir = %q, want it cleared for a docker volume", a.DataDir)
+	}
+	if a.BaseURL != "https://files.example.com" {
+		t.Errorf("BaseURL = %q, want it normalised", a.BaseURL)
+	}
+
+	a.Deployment = DeploySystemd
+	a.DataDir = "/var/lib/godrop"
+	Finalise(&a)
+	if a.DataDir != "/var/lib/godrop" {
+		t.Errorf("DataDir = %q, want it kept when the service writes to disk", a.DataDir)
+	}
+}
+
+func TestComposeUsesAVolumeWhenNoDirectoryWasChosen(t *testing.T) {
+	t.Parallel()
+	a := Defaults()
+	a.Deployment = DeployCompose
+	a.DataDir = ""
+	compose := ComposeFile(a)
+	if !strings.Contains(compose, "- godrop-data:/data") || !strings.Contains(compose, "\nvolumes:\n  godrop-data:") {
+		t.Errorf("compose should declare and mount a named volume:\n%s", compose)
+	}
+
+	a.DataDir = absDir
+	compose = ComposeFile(a)
+	if !strings.Contains(compose, "- "+absDir+":/data") {
+		t.Errorf("compose should mount the chosen directory:\n%s", compose)
+	}
+	if strings.Contains(compose, "\nvolumes:") {
+		t.Errorf("a host directory needs no volume declaration:\n%s", compose)
+	}
+}
+
+func TestNextStepsLeaveOutWhatSetupAlreadyDid(t *testing.T) {
+	t.Parallel()
+	a := Defaults()
+	a.Deployment = DeployCompose
+	a.Start = true
+	steps := strings.Join(NextStepsFor("linux", a), "\n")
+	if strings.Contains(steps, "docker compose up") || strings.Contains(steps, "godrop doctor") {
+		t.Errorf("steps = %q, want nothing that setup has already run", steps)
+	}
+
+	a.Start = false
+	steps = strings.Join(NextStepsFor("linux", a), "\n")
+	if !strings.Contains(steps, "docker compose up") || !strings.Contains(steps, "godrop doctor") {
+		t.Errorf("steps = %q, want the commands when nothing was started", steps)
+	}
+}
+
+func TestConfigDir(t *testing.T) {
+	t.Parallel()
+	if got := ConfigDir(func(string) string { return "" }, true); got != "/etc/godrop" {
+		t.Errorf("root config dir = %q", got)
+	}
+	home := func(key string) string {
+		if key == "HOME" {
+			return "/home/ubuntu"
+		}
+		return ""
+	}
+	if got := ConfigDir(home, false); got != filepath.Join("/home/ubuntu", ".godrop") {
+		t.Errorf("config dir = %q, want it under the home directory", got)
+	}
+	windows := func(key string) string {
+		if key == "ProgramData" {
+			return `C:\ProgramData`
+		}
+		return ""
+	}
+	if got := ConfigDir(windows, false); got != filepath.Join(`C:\ProgramData`, "GoDrop") {
+		t.Errorf("config dir = %q", got)
+	}
+	if got := ConfigDir(func(string) string { return "" }, false); got != "." {
+		t.Errorf("config dir = %q, want the working directory as a last resort", got)
+	}
+}
+
+// applicable lists the labels of the questions that would be put to someone
+// with these answers.
+func applicable(questions []Question, a Answers) []string {
+	var labels []string
+	for _, q := range questions {
+		if q.Applies(a) {
+			labels = append(labels, q.Label)
+		}
+	}
+	return labels
+}
+
+func contains(list []string, want string) bool {
+	for _, item := range list {
+		if item == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestAnAnswerThatIsNoLongerOfferedIsReplaced(t *testing.T) {
+	t.Parallel()
+	// Automatic was chosen for a public name, and then the address was edited
+	// into one no public authority can issue for.
+	a := Defaults()
+	a.BaseURL = "https://nas.local"
+	a.TLS = TLSAuto
+	Finalise(&a)
+	if a.TLS != TLSProxy {
+		t.Errorf("TLS = %q, want the answer moved off an option nobody can choose", a.TLS)
+	}
+
+	// And an unanswered certificate question starts on the easiest answer.
+	a.BaseURL = "https://files.example.com"
+	a.TLS = ""
+	Finalise(&a)
+	if a.TLS != TLSAuto {
+		t.Errorf("TLS = %q, want the automatic certificate", a.TLS)
 	}
 }

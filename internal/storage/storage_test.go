@@ -627,3 +627,82 @@ func requirePOSIXModes(t *testing.T) {
 		t.Skip("file modes are not POSIX bits on Windows")
 	}
 }
+
+// ------------------------------------------------------------------- expiry
+
+func TestAFileCanCarryItsOwnExpiry(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(dir, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+
+	file, err := s.CreateWithExpiry("txt", strings.NewReader("brief"), 1<<20, now.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	at, ok := ExpiresAt(file.ID)
+	if !ok || !at.Equal(now.Add(time.Hour)) {
+		t.Fatalf("expiry = %v, %t, want %v", at, ok, now.Add(time.Hour))
+	}
+	if s.Expired(file.ID) {
+		t.Error("it has not expired yet")
+	}
+	// The identifier still maps to its own path, which is what makes a lookup
+	// possible without an index.
+	if _, err := s.Path(file.ID, file.Ext); err != nil {
+		t.Errorf("Path: %v", err)
+	}
+
+	// Once the moment passes, it is expired and the sweep takes it, even with
+	// no retention configured at all.
+	s.now = func() time.Time { return now.Add(2 * time.Hour) }
+	if !s.Expired(file.ID) {
+		t.Error("it should have expired")
+	}
+	removed, freed, err := s.Cleanup(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 1 || freed != int64(len("brief")) {
+		t.Errorf("cleanup removed %d files (%d bytes), want the expired one", removed, freed)
+	}
+	if _, _, err := s.Open(file.ID, file.Ext); err == nil {
+		t.Error("the file should be gone")
+	}
+}
+
+func TestAFileWithoutAnExpiryKeepsTheOldRules(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(dir, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := s.Create("txt", strings.NewReader("keep"), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ExpiresAt(file.ID); ok {
+		t.Error("an ordinary upload carries no expiry")
+	}
+	if s.Expired(file.ID) {
+		t.Error("an ordinary upload never expires by itself")
+	}
+	if removed, _, err := s.Cleanup(0); err != nil || removed != 0 {
+		t.Errorf("cleanup removed %d (%v), want it to leave the file alone", removed, err)
+	}
+}
+
+func TestExpiresAtIgnoresRubbish(t *testing.T) {
+	for _, id := range []string{
+		"not-an-id",
+		"20260816-120000-" + strings.Repeat("a", 32),
+		"20260816-120000-" + strings.Repeat("a", 32) + "-ezzzzzzzzzz",
+	} {
+		if _, ok := ExpiresAt(id); ok {
+			t.Errorf("ExpiresAt(%q) claimed an expiry", id)
+		}
+	}
+}

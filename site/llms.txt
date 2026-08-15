@@ -24,8 +24,17 @@ curl -X POST -H "Authorization: Bearer $GODROP_TOKEN" \
 ```json
 {
   "url": "https://files.example.com/f/20260815-143022-8f4e2c91b7934b38a72d1c0e5b6a4f3d/photo.jpg",
-  "files": [{ "name": "photo.jpg", "size": 12345, "mime": "image/jpeg" }]
+  "files": [{ "url": "https://files.example.com/f/…/photo.jpg", "name": "photo.jpg", "size": 12345 }]
 }
+```
+
+The identifier and the media type are in the URL, so the response does not
+repeat them. An upload can also set its own expiry:
+
+```bash
+curl -X POST -H "Authorization: Bearer $GODROP_TOKEN" \
+  -H "X-Expires-In: 7d" -F "file=@invoice.pdf" \
+  https://files.example.com/upload
 ```
 
 Downloads need no token. Deletes do:

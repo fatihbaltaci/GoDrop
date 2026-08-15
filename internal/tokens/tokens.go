@@ -31,6 +31,26 @@ import (
 // and pasted snippets.
 const Prefix = "gd_"
 
+// Generate returns a fresh token without storing it anywhere. It is for the
+// setups where there is no token file to write yet: a docker volume that does
+// not exist until the first start, where GODROP_TOKENS in .env is the only
+// place a token can live.
+func Generate() (string, error) { return generate(randRead) }
+
+// generate takes its randomness as an argument so the failure can be tested;
+// crypto/rand does not fail on any system GoDrop runs on, which is exactly
+// why the branch would otherwise never be exercised.
+func generate(read func([]byte) (int, error)) (string, error) {
+	buf := make([]byte, 16)
+	if _, err := read(buf); err != nil {
+		return "", fmt.Errorf("generate token: %w", err)
+	}
+	return Prefix + hex.EncodeToString(buf), nil
+}
+
+// randRead is crypto/rand, named so it can be replaced in a test.
+var randRead = rand.Read
+
 // FileName is the token database file, stored inside the data directory.
 const FileName = "tokens.json"
 

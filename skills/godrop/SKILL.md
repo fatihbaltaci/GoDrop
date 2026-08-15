@@ -38,10 +38,8 @@ Response (`201`):
   "files": [
     {
       "url": "https://files.example.com/f/20260815-143022-8f4e…/report.pdf",
-      "id": "20260815-143022-8f4e….pdf",
       "name": "report.pdf",
-      "size": 12345,
-      "mime": "application/pdf"
+      "size": 12345
     }
   ]
 }
@@ -67,6 +65,19 @@ curl -sS -X POST -H "Authorization: Bearer $GODROP_TOKEN" \
 
 The request is all-or-nothing: if one file is rejected, none are stored. At
 most 20 files per request by default.
+
+## Upload something that should not stick around
+
+```bash
+curl -sS -X POST -H "Authorization: Bearer $GODROP_TOKEN" \
+  -H "X-Expires-In: 7d" -F "file=@invoice.pdf" \
+  "$GODROP_URL/upload" | jq -r '.files[0].expires_at'
+```
+
+Durations are `30m`, `12h`, `7d`, `30d`. `?expires=7d` does the same thing.
+The response carries `expires_at` when an expiry was asked for, and the file
+answers `404` from the moment it passes. A server with a retention period caps
+anything longer than it.
 
 ## Upload without multipart
 

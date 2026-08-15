@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -175,8 +176,8 @@ func TestUploadSingleFileReturnsBothURLAndFiles(t *testing.T) {
 	if f.Name != "Yaz Tatili 2026.jpg" {
 		t.Errorf("name = %q, want the original file name", f.Name)
 	}
-	if f.MIME != "image/jpeg" {
-		t.Errorf("mime = %q, want image/jpeg from the extension", f.MIME)
+	if f.ExpiresAt != "" {
+		t.Errorf("expires_at = %q, want nothing when no expiry was asked for", f.ExpiresAt)
 	}
 	if f.Size != int64(len("photo bytes")) {
 		t.Errorf("size = %d", f.Size)
@@ -184,15 +185,15 @@ func TestUploadSingleFileReturnsBothURLAndFiles(t *testing.T) {
 	if !strings.HasSuffix(f.URL, "/yaz-tatili-2026.jpg") {
 		t.Errorf("url = %q, want a slugified cosmetic name", f.URL)
 	}
-	if !strings.HasSuffix(f.ID, ".jpg") {
-		t.Errorf("id = %q, want the stored name with its extension", f.ID)
+	if !strings.HasSuffix(storedName(t, f.URL), ".jpg") {
+		t.Errorf("stored name = %q, want the extension kept", storedName(t, f.URL))
 	}
 }
 
 func TestUploadStoresFileOnDisk(t *testing.T) {
 	h := newHarness(t, nil)
 	got := h.uploadOK(t, [2]string{"a.txt", "content"})
-	id, ext := storage.SplitName(got.Files[0].ID)
+	id, ext := storage.SplitName(storedName(t, got.Files[0].URL))
 	path, err := h.store.Path(id, ext)
 	if err != nil {
 		t.Fatal(err)
@@ -218,8 +219,8 @@ func TestUploadMultipleFiles(t *testing.T) {
 	if got.URL != got.Files[0].URL {
 		t.Error("url should point at the first file")
 	}
-	if got.Files[0].MIME != "image/png" || got.Files[1].MIME != "application/pdf" {
-		t.Errorf("mime types = %q/%q", got.Files[0].MIME, got.Files[1].MIME)
+	if !strings.HasSuffix(got.Files[0].URL, ".png") || !strings.HasSuffix(got.Files[1].URL, ".pdf") {
+		t.Errorf("urls = %q/%q, want each extension kept", got.Files[0].URL, got.Files[1].URL)
 	}
 	if files, _ := h.store.Stats(); files != 2 {
 		t.Errorf("stored %d files, want 2", files)
@@ -442,7 +443,7 @@ func TestPutRawBodyUpload(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatal(err)
 	}
-	if len(out.Files) != 1 || out.Files[0].MIME != "application/pdf" {
+	if len(out.Files) != 1 || !strings.HasSuffix(out.Files[0].URL, ".pdf") {
 		t.Errorf("response = %+v, want a single PDF", out.Files)
 	}
 	if !strings.HasSuffix(out.URL, "/report.pdf") {
@@ -513,7 +514,7 @@ func TestDownloadNeedsNoAuthentication(t *testing.T) {
 func TestDownloadShortForm(t *testing.T) {
 	h := newHarness(t, nil)
 	got := h.uploadOK(t, [2]string{"photo.jpg", "bytes"})
-	resp := h.do(t, http.MethodGet, h.URL+"/f/"+got.Files[0].ID, "")
+	resp := h.do(t, http.MethodGet, h.URL+"/f/"+storedName(t, got.Files[0].URL), "")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want the short URL form to work", resp.StatusCode)
@@ -603,8 +604,8 @@ func TestDownloadOfUnknownExtensionFallsBackToBinary(t *testing.T) {
 func TestUploadWithoutExtension(t *testing.T) {
 	h := newHarness(t, nil)
 	got := h.uploadOK(t, [2]string{"LICENSE", "MIT"})
-	if strings.Contains(got.Files[0].ID, ".") {
-		t.Errorf("id = %q, want no extension", got.Files[0].ID)
+	if strings.Contains(storedName(t, got.Files[0].URL), ".") {
+		t.Errorf("id = %q, want no extension", storedName(t, got.Files[0].URL))
 	}
 	resp := h.do(t, http.MethodGet, got.URL, "")
 	defer resp.Body.Close()
@@ -646,7 +647,7 @@ func TestDeleteLifecycle(t *testing.T) {
 func TestDeleteShortForm(t *testing.T) {
 	h := newHarness(t, nil)
 	got := h.uploadOK(t, [2]string{"photo.jpg", "bytes"})
-	resp := h.do(t, http.MethodDelete, h.URL+"/f/"+got.Files[0].ID, testToken)
+	resp := h.do(t, http.MethodDelete, h.URL+"/f/"+storedName(t, got.Files[0].URL), testToken)
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("delete = %d, want 204", resp.StatusCode)
@@ -666,7 +667,7 @@ func TestDeleteReportsStorageFailures(t *testing.T) {
 	requireStrictPermissions(t)
 	h := newHarness(t, nil)
 	got := h.uploadOK(t, [2]string{"photo.jpg", "bytes"})
-	id, ext := storage.SplitName(got.Files[0].ID)
+	id, ext := storage.SplitName(storedName(t, got.Files[0].URL))
 	path, err := h.store.Path(id, ext)
 	if err != nil {
 		t.Fatal(err)
@@ -916,4 +917,77 @@ func requireStrictPermissions(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("permission checks are meaningless as root")
 	}
+}
+
+// storedName derives the on-disk name of an uploaded file from its URL, the
+// way any client would have to now that the response carries the URL and
+// nothing that repeats it.
+func storedName(t *testing.T, rawURL string) string {
+	t.Helper()
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatalf("parse %q: %v", rawURL, err)
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) < 2 || parts[0] != "f" {
+		t.Fatalf("not an upload URL: %q", rawURL)
+	}
+	id := parts[1]
+	if len(parts) == 2 {
+		return id // no cosmetic name: the last segment is the stored name
+	}
+	if ext := SanitizeExt(parts[2]); ext != "" {
+		return id + "." + ext
+	}
+	return id
+}
+
+// uploadRaw posts one multipart upload with extra headers, and returns the
+// response as it came.
+func (h *harness) uploadRaw(t *testing.T, headers map[string]string, files ...[2]string) *http.Response {
+	t.Helper()
+	var body bytes.Buffer
+	w := multipart.NewWriter(&body)
+	for _, f := range files {
+		part, err := w.CreateFormFile("file", f[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.WriteString(part, f[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodPost, h.URL+"/upload", &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := h.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+// uploadWithHeaders is uploadRaw for the cases that expect it to work.
+func (h *harness) uploadWithHeaders(t *testing.T, headers map[string]string, files ...[2]string) uploadResponse {
+	t.Helper()
+	resp := h.uploadRaw(t, headers, files...)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("upload = %d: %s", resp.StatusCode, body)
+	}
+	var out uploadResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return out
 }

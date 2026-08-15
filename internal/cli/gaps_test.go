@@ -144,6 +144,8 @@ func TestVerifyReportsFirewallStates(t *testing.T) {
 	a := wizard.Defaults()
 	a.BaseURL = "https://files.example.com"
 	a.Port = "1"
+	// Nothing was started here, so verify does the local checks itself.
+	a.Start = false
 
 	tests := []struct {
 		name string
@@ -180,6 +182,7 @@ func TestVerifyReportsAnUnreachableServer(t *testing.T) {
 	a := wizard.Defaults()
 	a.BaseURL = "https://files.example.com"
 	a.Port = "1"
+	a.Start = false
 
 	t.Run("refused", func(t *testing.T) {
 		externalCheck = func(context.Context, *http.Client, string, string) (netcheck.ExternalResult, error) {
@@ -232,6 +235,7 @@ func TestVerifyDetectsAListeningServer(t *testing.T) {
 	a := wizard.Defaults()
 	a.Port = strings.TrimPrefix(addr, "127.0.0.1:")
 	a.BaseURL = ""
+	a.Start = false
 
 	var buf bytes.Buffer
 	verify(t.Context(), &output{w: &buf}, a)
@@ -273,7 +277,8 @@ func TestMaybeStartRunsCompose(t *testing.T) {
 	fakeDocker(t, 0)
 	var buf bytes.Buffer
 	a := wizard.Defaults()
-	if err := maybeStart(t.Context(), &output{w: &buf}, a, true); err != nil {
+	a.Start = true
+	if err := maybeStart(t.Context(), &output{w: &buf}, testBuild(), a, "."); err != nil {
 		t.Fatalf("maybeStart: %v", err)
 	}
 	if !strings.Contains(buf.String(), "containers started") {
@@ -283,7 +288,9 @@ func TestMaybeStartRunsCompose(t *testing.T) {
 
 func TestMaybeStartReportsComposeFailure(t *testing.T) {
 	fakeDocker(t, 1)
-	err := maybeStart(t.Context(), &output{w: io.Discard}, wizard.Defaults(), true)
+	failing := wizard.Defaults()
+	failing.Start = true
+	err := maybeStart(t.Context(), &output{w: io.Discard}, testBuild(), failing, ".")
 	if err == nil || !strings.Contains(err.Error(), "docker compose up failed") {
 		t.Fatalf("err = %v", err)
 	}
@@ -292,7 +299,9 @@ func TestMaybeStartReportsComposeFailure(t *testing.T) {
 func TestMaybeStartWithoutTheDockerBinary(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	var buf bytes.Buffer
-	if err := maybeStart(t.Context(), &output{w: &buf}, wizard.Defaults(), true); err != nil {
+	noDocker := wizard.Defaults()
+	noDocker.Start = true
+	if err := maybeStart(t.Context(), &output{w: &buf}, testBuild(), noDocker, "."); err != nil {
 		t.Fatalf("a missing docker should not be fatal: %v", err)
 	}
 	if !strings.Contains(buf.String(), "docker not found") {
@@ -509,6 +518,7 @@ func TestVerifyChecksBothPortsWhenGoDropServesTLS(t *testing.T) {
 	a := wizard.Defaults()
 	a.BaseURL = "https://files.example.com"
 	a.TLS = wizard.TLSAuto
+	a.Start = false
 
 	var buf bytes.Buffer
 	verify(t.Context(), &output{w: &buf}, a)

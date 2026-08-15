@@ -59,7 +59,7 @@ func (cfg *Config) loadTLS(env Getenv, fail func(string, error)) {
 		cfg.HTTPAddr = ""
 	}
 
-	switch cfg.TLS {
+	switch cfg.TLS { //nolint:exhaustive // TLSOff returned above
 	case TLSFile:
 		if cfg.TLSCert == "" || cfg.TLSKey == "" {
 			fail("GODROP_TLS_CERT", errors.New("both GODROP_TLS_CERT and GODROP_TLS_KEY are needed"))
@@ -83,7 +83,6 @@ func (cfg *Config) loadTLS(env Getenv, fail func(string, error)) {
 				fail("GODROP_TLS_DOMAINS", err)
 			}
 		}
-	case TLSOff:
 	}
 }
 

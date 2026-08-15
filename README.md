@@ -35,10 +35,8 @@ curl -X POST \
   "files": [
     {
       "url": "https://files.example.com/f/20260815-143022-8f4e2c91b7934b38a72d1c0e5b6a4f3d/photo.jpg",
-      "id": "20260815-143022-8f4e2c91b7934b38a72d1c0e5b6a4f3d.jpg",
       "name": "photo.jpg",
-      "size": 12345,
-      "mime": "image/jpeg"
+      "size": 12345
     }
   ]
 }
@@ -175,13 +173,22 @@ macOS or Windows, and the commands it prints use the right shell.
 | `GET` | `/llms.txt` · `/openapi.yaml` | | machine-readable description |
 
 ```bash
-# Upload several files at once: all succeed or none do
+# Several files at once: all succeed or none do, and the response lists them
+# in the order they were sent
 curl -X POST -H "Authorization: Bearer $GODROP_TOKEN" \
-  -F "file=@a.png" -F "file=@b.pdf" \
+  -F "file=@a.png" -F "file=@b.pdf" -F "file=@notes.txt" \
   https://files.example.com/upload
+
+# A file that deletes itself: 30m, 12h, 7d, 30d
+curl -X POST -H "Authorization: Bearer $GODROP_TOKEN" \
+  -H "X-Expires-In: 7d" \
+  -F "file=@invoice.pdf" \
+  https://files.example.com/upload
+#   ?expires=7d does the same thing, for clients that cannot set a header
 
 # Upload without multipart
 curl -X PUT --data-binary @report.pdf \
+  -H "X-Expires-In: 24h" \
   -H "Authorization: Bearer $GODROP_TOKEN" \
   https://files.example.com/upload/report.pdf
 
@@ -195,6 +202,25 @@ curl -X DELETE -H "Authorization: Bearer $GODROP_TOKEN" \
 ```
 
 Both `Authorization: Bearer <token>` and `X-API-Key: <token>` are accepted.
+
+An upload answers with the URL, and with one entry per file when there was
+more than one:
+
+```json
+{
+  "url": "https://files.example.com/f/20260815-143022-8f4e…/a.png",
+  "files": [
+    { "url": "https://files.example.com/f/20260815-143022-8f4e…/a.png", "name": "a.png", "size": 8123 },
+    { "url": "https://files.example.com/f/20260815-143024-b71d…/b.pdf", "name": "b.pdf", "size": 91234,
+      "expires_at": "2026-08-22T14:30:24Z" }
+  ]
+}
+```
+
+The identifier, the extension and therefore the media type are all in the URL,
+so the response does not repeat them. `expires_at` appears only when the upload
+asked for one; `GODROP_RETENTION` is a maximum, so a longer request is capped
+at it.
 
 **Status codes:** `201` uploaded · `204` deleted · `400` malformed body or too
 many files · `401` bad token · `404` unknown id, or the name's extension does
@@ -255,6 +281,7 @@ Available Commands:
   skill       Install the agent skill that teaches a coding agent to use GoDrop
   telemetry   Inspect or change the anonymous heartbeat
   token       Create, list and revoke API tokens
+  uninstall   Remove GoDrop from this machine
   update      Update GoDrop to the latest release
   version     Print version information
 
@@ -316,10 +343,11 @@ Usage:
 
 Flags:
       --base-url string         public URL, e.g. https://files.example.com
-      --data-dir string         where uploaded files are stored (default "/var/lib/godrop")
+      --data-dir string         where uploaded files are stored (default "/Users/fatihbaltaci/.local/share/godrop")
       --deployment string       compose, systemd or env (default "compose")
       --force                   overwrite existing configuration files
   -h, --help                    help for init
+      --limits                  set the size, quota, retention and port questions yourself
       --max-file-size string    per-file limit, e.g. 100MB (default "100MB")
       --max-total-size string   storage quota, empty for unlimited (default "20GB")
       --no-external-check       do not ask godrop.sh to verify reachability
