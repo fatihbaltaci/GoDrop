@@ -162,7 +162,7 @@ func decodeError(t *testing.T, resp *http.Response) string {
 
 // ------------------------------------------------------------------- uploads
 
-func TestUploadSingleFileReturnsBothURLAndFiles(t *testing.T) {
+func TestUploadAnswersWithOneEntryPerFile(t *testing.T) {
 	h := newHarness(t, nil)
 	got := h.uploadOK(t, [2]string{"Yaz Tatili 2026.jpg", "photo bytes"})
 
@@ -170,17 +170,14 @@ func TestUploadSingleFileReturnsBothURLAndFiles(t *testing.T) {
 		t.Fatalf("files = %d, want 1", len(got.Files))
 	}
 	f := got.Files[0]
-	if got.URL != f.URL {
-		t.Errorf("url = %q but files[0].url = %q; both must be present and equal for one file", got.URL, f.URL)
-	}
 	if f.Name != "Yaz Tatili 2026.jpg" {
 		t.Errorf("name = %q, want the original file name", f.Name)
 	}
 	if f.ExpiresAt != "" {
 		t.Errorf("expires_at = %q, want nothing when no expiry was asked for", f.ExpiresAt)
 	}
-	if f.Size != int64(len("photo bytes")) {
-		t.Errorf("size = %d", f.Size)
+	if f.SizeBytes != int64(len("photo bytes")) {
+		t.Errorf("size = %d", f.SizeBytes)
 	}
 	if !strings.HasSuffix(f.URL, "/yaz-tatili-2026.jpg") {
 		t.Errorf("url = %q, want a slugified cosmetic name", f.URL)
@@ -215,9 +212,6 @@ func TestUploadMultipleFiles(t *testing.T) {
 	)
 	if len(got.Files) != 2 {
 		t.Fatalf("files = %d, want 2", len(got.Files))
-	}
-	if got.URL != got.Files[0].URL {
-		t.Error("url should point at the first file")
 	}
 	if !strings.HasSuffix(got.Files[0].URL, ".png") || !strings.HasSuffix(got.Files[1].URL, ".pdf") {
 		t.Errorf("urls = %q/%q, want each extension kept", got.Files[0].URL, got.Files[1].URL)
@@ -446,8 +440,8 @@ func TestPutRawBodyUpload(t *testing.T) {
 	if len(out.Files) != 1 || !strings.HasSuffix(out.Files[0].URL, ".pdf") {
 		t.Errorf("response = %+v, want a single PDF", out.Files)
 	}
-	if !strings.HasSuffix(out.URL, "/report.pdf") {
-		t.Errorf("url = %q, want the name from the path", out.URL)
+	if !strings.HasSuffix(out.Files[0].URL, "/report.pdf") {
+		t.Errorf("url = %q, want the name from the path", out.Files[0].URL)
 	}
 }
 
@@ -491,7 +485,7 @@ func TestDownloadNeedsNoAuthentication(t *testing.T) {
 	h := newHarness(t, nil)
 	got := h.uploadOK(t, [2]string{"photo.jpg", "image bytes"})
 
-	resp := h.do(t, http.MethodGet, got.URL, "")
+	resp := h.do(t, http.MethodGet, got.Files[0].URL, "")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200 without a token", resp.StatusCode)
@@ -524,7 +518,7 @@ func TestDownloadShortForm(t *testing.T) {
 func TestDownloadForcedByQueryParameter(t *testing.T) {
 	h := newHarness(t, nil)
 	got := h.uploadOK(t, [2]string{"photo.jpg", "bytes"})
-	resp := h.do(t, http.MethodGet, got.URL+"?dl=1", "")
+	resp := h.do(t, http.MethodGet, got.Files[0].URL+"?dl=1", "")
 	defer resp.Body.Close()
 	if cd := resp.Header.Get("Content-Disposition"); !strings.HasPrefix(cd, "attachment") {
 		t.Errorf("Content-Disposition = %q, want attachment when ?dl is set", cd)
@@ -535,7 +529,7 @@ func TestDownloadSupportsRangeAndConditionalRequests(t *testing.T) {
 	h := newHarness(t, nil)
 	got := h.uploadOK(t, [2]string{"data.bin", "0123456789"})
 
-	req, _ := http.NewRequest(http.MethodGet, got.URL, nil)
+	req, _ := http.NewRequest(http.MethodGet, got.Files[0].URL, nil)
 	req.Header.Set("Range", "bytes=2-4")
 	resp, err := h.Client().Do(req)
 	if err != nil {
@@ -547,7 +541,7 @@ func TestDownloadSupportsRangeAndConditionalRequests(t *testing.T) {
 		t.Errorf("range request = %d %q, want 206 \"234\"", resp.StatusCode, body)
 	}
 
-	req, _ = http.NewRequest(http.MethodGet, got.URL, nil)
+	req, _ = http.NewRequest(http.MethodGet, got.Files[0].URL, nil)
 	req.Header.Set("If-None-Match", resp.Header.Get("ETag"))
 	resp2, err := h.Client().Do(req)
 	if err != nil {
@@ -562,7 +556,7 @@ func TestDownloadSupportsRangeAndConditionalRequests(t *testing.T) {
 func TestHeadRequestReturnsHeadersOnly(t *testing.T) {
 	h := newHarness(t, nil)
 	got := h.uploadOK(t, [2]string{"photo.jpg", "image bytes"})
-	resp := h.do(t, http.MethodHead, got.URL, "")
+	resp := h.do(t, http.MethodHead, got.Files[0].URL, "")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d", resp.StatusCode)
@@ -594,7 +588,7 @@ func TestDownloadUnknownFile(t *testing.T) {
 func TestDownloadOfUnknownExtensionFallsBackToBinary(t *testing.T) {
 	h := newHarness(t, nil)
 	got := h.uploadOK(t, [2]string{"archive.zzz", "opaque"})
-	resp := h.do(t, http.MethodGet, got.URL, "")
+	resp := h.do(t, http.MethodGet, got.Files[0].URL, "")
 	defer resp.Body.Close()
 	if ct := resp.Header.Get("Content-Type"); ct != "application/octet-stream" {
 		t.Errorf("Content-Type = %q, want application/octet-stream", ct)
@@ -607,7 +601,7 @@ func TestUploadWithoutExtension(t *testing.T) {
 	if strings.Contains(storedName(t, got.Files[0].URL), ".") {
 		t.Errorf("id = %q, want no extension", storedName(t, got.Files[0].URL))
 	}
-	resp := h.do(t, http.MethodGet, got.URL, "")
+	resp := h.do(t, http.MethodGet, got.Files[0].URL, "")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d", resp.StatusCode)
@@ -620,21 +614,21 @@ func TestDeleteLifecycle(t *testing.T) {
 	h := newHarness(t, nil)
 	got := h.uploadOK(t, [2]string{"photo.jpg", "bytes"})
 
-	if resp := h.do(t, http.MethodDelete, got.URL, ""); resp.StatusCode != http.StatusUnauthorized {
+	if resp := h.do(t, http.MethodDelete, got.Files[0].URL, ""); resp.StatusCode != http.StatusUnauthorized {
 		resp.Body.Close()
 		t.Fatalf("unauthenticated delete = %d, want 401", resp.StatusCode)
 	}
-	resp := h.do(t, http.MethodDelete, got.URL, testToken)
+	resp := h.do(t, http.MethodDelete, got.Files[0].URL, testToken)
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("delete = %d, want 204", resp.StatusCode)
 	}
-	resp = h.do(t, http.MethodDelete, got.URL, testToken)
+	resp = h.do(t, http.MethodDelete, got.Files[0].URL, testToken)
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("second delete = %d, want 404", resp.StatusCode)
 	}
-	resp = h.do(t, http.MethodGet, got.URL, "")
+	resp = h.do(t, http.MethodGet, got.Files[0].URL, "")
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("download after delete = %d, want 404", resp.StatusCode)
@@ -678,7 +672,7 @@ func TestDeleteReportsStorageFailures(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
 
-	resp := h.do(t, http.MethodDelete, got.URL, testToken)
+	resp := h.do(t, http.MethodDelete, got.Files[0].URL, testToken)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500 when the file cannot be removed", resp.StatusCode)
@@ -829,8 +823,8 @@ func TestOpenAPISpecIsServed(t *testing.T) {
 func TestConfiguredBaseURLIsUsedForLinks(t *testing.T) {
 	h := newHarness(t, func(c *config.Config) { c.BaseURL = "https://files.example.com" })
 	got := h.uploadOK(t, [2]string{"photo.jpg", "bytes"})
-	if !strings.HasPrefix(got.URL, "https://files.example.com/f/") {
-		t.Errorf("url = %q, want the configured base URL", got.URL)
+	if !strings.HasPrefix(got.Files[0].URL, "https://files.example.com/f/") {
+		t.Errorf("url = %q, want the configured base URL", got.Files[0].URL)
 	}
 }
 
@@ -854,8 +848,8 @@ func TestForwardedProtocolIsHonoured(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(out.URL, "https://") {
-		t.Errorf("url = %q, want https behind a TLS-terminating proxy", out.URL)
+	if !strings.HasPrefix(out.Files[0].URL, "https://") {
+		t.Errorf("url = %q, want https behind a TLS-terminating proxy", out.Files[0].URL)
 	}
 }
 
@@ -990,4 +984,34 @@ func (h *harness) uploadWithHeaders(t *testing.T, headers map[string]string, fil
 		t.Fatalf("decode: %v", err)
 	}
 	return out
+}
+
+func TestAnUploadSaysWhereTheFileWentInTheHeaderToo(t *testing.T) {
+	// 201 with Location is how HTTP says "the thing you just made is here",
+	// and it is the answer without a JSON parser.
+	h := newHarness(t, nil)
+	resp := h.upload(t, testToken, [2]string{"photo.jpg", "bytes"})
+	defer resp.Body.Close()
+
+	var got uploadResponse
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if location := resp.Header.Get("Location"); location != got.Files[0].URL {
+		t.Errorf("Location = %q, want %q", location, got.Files[0].URL)
+	}
+}
+
+func TestWithSeveralFilesTheHeaderPointsAtTheFirst(t *testing.T) {
+	h := newHarness(t, nil)
+	resp := h.upload(t, testToken, [2]string{"a.png", "first"}, [2]string{"b.pdf", "second"})
+	defer resp.Body.Close()
+
+	var got uploadResponse
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if location := resp.Header.Get("Location"); location != got.Files[0].URL {
+		t.Errorf("Location = %q, want the first of %d files", location, len(got.Files))
+	}
 }

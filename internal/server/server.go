@@ -172,7 +172,7 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 			}
 			w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-API-Key")
-			w.Header().Set("Access-Control-Expose-Headers", "Content-Disposition, ETag")
+			w.Header().Set("Access-Control-Expose-Headers", "Content-Disposition, ETag, Location")
 			w.Header().Set("Access-Control-Max-Age", "86400")
 		}
 		if r.Method == http.MethodOptions {
@@ -291,19 +291,26 @@ func requestScheme(r *http.Request) string {
 
 // fileInfo is what an upload returns about one file.
 //
-// Only what the URL does not already say: the identifier, the extension and
+// Only what the URL does not already say. The identifier, the extension and
 // therefore the media type are all in the URL, so repeating them is noise a
-// client has to read past. The size is real information, and so is an expiry
-// the upload asked for.
+// client has to read past. The name is not: the cosmetic part of the URL is a
+// slug, and "Yaz Raporu 2026.pdf" cannot be recovered from
+// "yaz-raporu-2026.pdf", which is what tells a caller which answer belongs to
+// which file. The size is the only account of what actually arrived, and the
+// expiry appears when one was asked for.
 type fileInfo struct {
 	URL       string `json:"url"`
 	Name      string `json:"name,omitempty"`
-	Size      int64  `json:"size"`
+	SizeBytes int64  `json:"size_bytes"`
 	ExpiresAt string `json:"expires_at,omitempty"`
 }
 
+// uploadResponse is one shape whatever was sent: a list, in the order the
+// files were sent. There is no top-level URL duplicating the first entry,
+// because "the first one" is an arbitrary answer to "which one?"; the URL of
+// a single upload is in the Location header as well, where HTTP puts the
+// address of something just created.
 type uploadResponse struct {
-	URL   string     `json:"url"`
 	Files []fileInfo `json:"files"`
 }
 
@@ -386,7 +393,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request, token stri
 	for _, f := range created {
 		s.log.Info("upload", "id", ShortID(f.ID), "size", f.Size, "token", token, "ip", clientIP(r))
 	}
-	writeJSON(w, http.StatusCreated, uploadResponse{URL: infos[0].URL, Files: infos})
+	writeCreated(w, infos)
 }
 
 func (s *Server) handlePutUpload(w http.ResponseWriter, r *http.Request, token string) {
@@ -398,7 +405,16 @@ func (s *Server) handlePutUpload(w http.ResponseWriter, r *http.Request, token s
 		return
 	}
 	s.log.Info("upload", "id", ShortID(file.ID), "size", file.Size, "token", token, "ip", clientIP(r))
-	writeJSON(w, http.StatusCreated, uploadResponse{URL: info.URL, Files: []fileInfo{info}})
+	writeCreated(w, []fileInfo{info})
+}
+
+// writeCreated answers an upload: 201, the list, and Location pointing at the
+// first file, which is the whole answer when only one was sent.
+func writeCreated(w http.ResponseWriter, files []fileInfo) {
+	if len(files) > 0 {
+		w.Header().Set("Location", files[0].URL)
+	}
+	writeJSON(w, http.StatusCreated, uploadResponse{Files: files})
 }
 
 // storePart writes one uploaded stream and builds its public description.
@@ -418,9 +434,9 @@ func (s *Server) storePart(r *http.Request, filename string, body io.Reader) (fi
 		path = "/f/" + file.ID + "/" + slug
 	}
 	info := fileInfo{
-		URL:  s.cfg.PublicURL(requestScheme(r), r.Host, path),
-		Name: strings.TrimSpace(filename),
-		Size: file.Size,
+		URL:       s.cfg.PublicURL(requestScheme(r), r.Host, path),
+		Name:      strings.TrimSpace(filename),
+		SizeBytes: file.Size,
 	}
 	if at, ok := storage.ExpiresAt(file.ID); ok {
 		info.ExpiresAt = at.Format(time.RFC3339)

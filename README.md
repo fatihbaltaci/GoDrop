@@ -31,12 +31,11 @@ curl -X POST \
 
 ```json
 {
-  "url": "https://files.example.com/f/20260815-143022-8f4e2c91b7934b38a72d1c0e5b6a4f3d/photo.jpg",
   "files": [
     {
       "url": "https://files.example.com/f/20260815-143022-8f4e2c91b7934b38a72d1c0e5b6a4f3d/photo.jpg",
       "name": "photo.jpg",
-      "size": 12345
+      "size_bytes": 12345
     }
   ]
 }
@@ -203,24 +202,32 @@ curl -X DELETE -H "Authorization: Bearer $GODROP_TOKEN" \
 
 Both `Authorization: Bearer <token>` and `X-API-Key: <token>` are accepted.
 
-An upload answers with the URL, and with one entry per file when there was
-more than one:
+An upload answers with one entry per file, in the order they were sent, and
+with `Location` pointing at the first:
 
 ```json
 {
-  "url": "https://files.example.com/f/20260815-143022-8f4e…/a.png",
   "files": [
-    { "url": "https://files.example.com/f/20260815-143022-8f4e…/a.png", "name": "a.png", "size": 8123 },
-    { "url": "https://files.example.com/f/20260815-143024-b71d…/b.pdf", "name": "b.pdf", "size": 91234,
+    { "url": "https://files.example.com/f/20260815-143022-8f4e…/a.png", "name": "a.png", "size_bytes": 8123 },
+    { "url": "https://files.example.com/f/20260815-143024-b71d…/b.pdf", "name": "b.pdf", "size_bytes": 91234,
       "expires_at": "2026-08-22T14:30:24Z" }
   ]
 }
 ```
 
-The identifier, the extension and therefore the media type are all in the URL,
-so the response does not repeat them. `expires_at` appears only when the upload
-asked for one; `GODROP_RETENTION` is a maximum, so a longer request is capped
-at it.
+One shape whatever was sent, so nothing has to branch on how many files there
+were. The identifier, the extension and therefore the media type are all in the
+URL, so the response does not repeat them; the name is there because the
+cosmetic part of the URL is a slug and cannot give it back. `expires_at`
+appears only when the upload asked for one, and `GODROP_RETENTION` is a
+maximum, so a longer request is capped at it.
+
+Without a JSON parser to hand, the header is the whole answer:
+
+```bash
+curl -sS -D- -o /dev/null -X POST -H "Authorization: Bearer $GODROP_TOKEN" \
+  -F "file=@photo.jpg" https://files.example.com/upload | grep -i '^location:'
+```
 
 **Status codes:** `201` uploaded · `204` deleted · `400` malformed body or too
 many files · `401` bad token · `404` unknown id, or the name's extension does

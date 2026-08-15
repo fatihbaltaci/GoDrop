@@ -49,6 +49,10 @@ paths:
       responses:
         "201":
           description: Files stored
+          headers:
+            Location:
+              description: URL of the first file stored by this request.
+              schema: { type: string, format: uri }
           content:
             application/json:
               schema:
@@ -83,6 +87,10 @@ paths:
       responses:
         "201":
           description: File stored
+          headers:
+            Location:
+              description: URL of the first file stored by this request.
+              schema: { type: string, format: uri }
           content:
             application/json:
               schema:
@@ -232,11 +240,15 @@ components:
   schemas:
     FileInfo:
       type: object
-      required: [url, size]
+      required: [url, size_bytes]
       properties:
         url: { type: string, format: uri }
-        name: { type: string, description: Original file name as sent by the client. }
-        size: { type: integer }
+        name:
+          type: string
+          description: >
+            The file name as sent, which the URL cannot give back: its
+            cosmetic part is a slug.
+        size_bytes: { type: integer, description: Bytes stored. }
         expires_at:
           type: string
           format: date-time
@@ -245,12 +257,8 @@ components:
             for an expiry with X-Expires-In or ?expires=.
     UploadResponse:
       type: object
-      required: [url, files]
+      required: [files]
       properties:
-        url:
-          type: string
-          format: uri
-          description: URL of the first uploaded file; always present.
         files:
           type: array
           items: { $ref: "#/components/schemas/FileInfo" }

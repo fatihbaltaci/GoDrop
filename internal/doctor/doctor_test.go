@@ -531,7 +531,9 @@ func TestEndToEndRefusesAURLPointingSomewhereElse(t *testing.T) {
 
 	hostile := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(map[string]string{"url": victim.URL + "/f/anything.txt"})
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"files": []map[string]any{{"url": victim.URL + "/f/anything.txt", "size_bytes": 0}},
+		})
 	}))
 	defer hostile.Close()
 
@@ -1141,8 +1143,7 @@ func failingDeleteServer(t *testing.T) *httptest.Server {
 			body = "godrop doctor round trip\n"
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"url":   "http://" + r.Host + "/f/x",
-				"files": []map[string]any{{"url": "http://" + r.Host + "/f/x", "size": len(body)}},
+				"files": []map[string]any{{"url": "http://" + r.Host + "/f/x", "size_bytes": len(body)}},
 			})
 		case http.MethodGet:
 			_, _ = io.WriteString(w, body)
@@ -1157,7 +1158,9 @@ func failingDeleteServer(t *testing.T) *httptest.Server {
 func TestEndToEndReportsAnUnusableUploadURL(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(map[string]any{"url": "://not-a-url"})
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"files": []map[string]any{{"url": "://not-a-url"}},
+		})
 	}))
 	defer srv.Close()
 
@@ -1342,7 +1345,9 @@ func TestEndToEndReportsANonOKDownload(t *testing.T) {
 		switch r.Method {
 		case http.MethodPost:
 			w.WriteHeader(http.StatusCreated)
-			_ = json.NewEncoder(w).Encode(map[string]any{"url": "http://" + r.Host + "/f/x"})
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"files": []map[string]any{{"url": "http://" + r.Host + "/f/x"}},
+			})
 		case http.MethodGet:
 			w.WriteHeader(http.StatusForbidden)
 		default:

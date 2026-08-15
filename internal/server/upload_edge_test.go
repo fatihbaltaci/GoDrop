@@ -153,10 +153,10 @@ func TestSlugFallsBackToTheStoredName(t *testing.T) {
 	h := newHarness(t, nil)
 	got := h.uploadOK(t, [2]string{"🙂.png", "bytes"})
 	id, ext := storage.SplitName(storedName(t, got.Files[0].URL))
-	if !strings.HasSuffix(got.URL, "/f/"+storage.JoinName(id, ext)) {
-		t.Errorf("url = %q, want the short form when the name has no usable characters", got.URL)
+	if !strings.HasSuffix(got.Files[0].URL, "/f/"+storage.JoinName(id, ext)) {
+		t.Errorf("url = %q, want the short form when the name has no usable characters", got.Files[0].URL)
 	}
-	resp := h.do(t, http.MethodGet, got.URL, "")
+	resp := h.do(t, http.MethodGet, got.Files[0].URL, "")
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status = %d, want the fallback URL to work", resp.StatusCode)
@@ -242,7 +242,7 @@ func TestAnUploadCanSetItsOwnExpiry(t *testing.T) {
 		t.Errorf("expires in %s, want about a day", wait)
 	}
 	// Before the moment passes it is an ordinary file.
-	resp := h.do(t, http.MethodGet, got.URL, "")
+	resp := h.do(t, http.MethodGet, got.Files[0].URL, "")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("download = %d, want it to work before it expires", resp.StatusCode)

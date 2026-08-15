@@ -85,21 +85,20 @@ Downloads (GET) never require a token.
       -F "file=@photo.jpg" \
       %s/upload
 
-Response (201):
+Response (201), with the same URL in the Location header:
 
     {
-      "url": "%s/f/20260815-143022-8f4e.../photo.jpg",
       "files": [
         {
           "url": "%s/f/20260815-143022-8f4e.../photo.jpg",
           "name": "photo.jpg",
-          "size": 12345
+          "size_bytes": 12345
         }
       ]
     }
 
-Read "url" for the single-file case; read "files" when you sent several. Both
-fields are always present, so no branching is needed. The identifier and the
+One shape whatever was sent: read files[0].url for a single upload and walk
+the list for several, in the order they were sent. The identifier and the
 media type are part of the URL, so they are not repeated.
 
 ## Expiring uploads
@@ -170,7 +169,7 @@ Returns 204 on success, 404 if it was already gone.
 - Machine-readable schema: %s/openapi.yaml
 `,
 		base, s.version,
-		base, base, base, base, base, s.cfg.MaxFilesPerRequest, base, base, base,
+		base, base, base, base, s.cfg.MaxFilesPerRequest, base, base, base,
 		config.FormatSize(s.cfg.MaxFileSize), s.cfg.MaxFilesPerRequest, quota, retention,
 		base, base, base)
 	return b.String()

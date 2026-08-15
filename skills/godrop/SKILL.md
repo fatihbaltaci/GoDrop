@@ -34,26 +34,26 @@ Response (`201`):
 
 ```json
 {
-  "url": "https://files.example.com/f/20260815-143022-8f4e…/report.pdf",
   "files": [
     {
       "url": "https://files.example.com/f/20260815-143022-8f4e…/report.pdf",
       "name": "report.pdf",
-      "size": 12345
+      "size_bytes": 12345
     }
   ]
 }
 ```
 
-Read `.url` for the single-file case:
+Read `.files[0].url` for the single-file case:
 
 ```bash
 url=$(curl -sS -X POST -H "Authorization: Bearer $GODROP_TOKEN" \
-        -F "file=@report.pdf" "$GODROP_URL/upload" | jq -r .url)
+        -F "file=@report.pdf" "$GODROP_URL/upload" | jq -r '.files[0].url')
 echo "$url"
 ```
 
-Both `url` and `files` are always present, so there is no branching to do.
+The response has one shape whatever was sent, so there is no branching to do.
+The same URL is in the `Location` header, for when there is no JSON parser.
 
 ## Upload several files
 
@@ -86,7 +86,7 @@ Useful when piping generated content:
 ```bash
 go test ./... 2>&1 | curl -sS -X PUT --data-binary @- \
   -H "Authorization: Bearer $GODROP_TOKEN" \
-  "$GODROP_URL/upload/test-output.txt" | jq -r .url
+  "$GODROP_URL/upload/test-output.txt" | jq -r '.files[0].url' 
 ```
 
 The extension in the path determines the stored type, so name it sensibly.

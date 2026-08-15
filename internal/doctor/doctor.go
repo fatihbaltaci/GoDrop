@@ -634,29 +634,29 @@ func (r *runner) checkEndToEnd(ctx context.Context) {
 		return
 	}
 	var uploaded struct {
-		URL   string `json:"url"`
 		Files []struct {
-			URL  string `json:"url"`
-			Size int64  `json:"size"`
+			URL       string `json:"url"`
+			SizeBytes int64  `json:"size_bytes"`
 		} `json:"files"`
 	}
-	if err := json.Unmarshal(data, &uploaded); err != nil || uploaded.URL == "" {
+	if err := json.Unmarshal(data, &uploaded); err != nil || len(uploaded.Files) == 0 {
 		r.add(g, "upload", Fail, "unexpected response body: "+strings.TrimSpace(string(data)), "")
 		return
 	}
+	first := uploaded.Files[0]
 	// The URL to fetch and then delete comes from the server being diagnosed,
 	// and the delete carries the API token. A server that answered with an
 	// address somewhere else would turn this check into a way to reach into
 	// the operator's network and hand the token to a third party.
-	if !sameOrigin(target, uploaded.URL) {
+	if !sameOrigin(target, first.URL) {
 		r.add(g, "upload", Fail,
-			fmt.Sprintf("the server answered with a URL somewhere else entirely: %s", uploaded.URL),
+			fmt.Sprintf("the server answered with a URL somewhere else entirely: %s", first.URL),
 			"check GODROP_BASE_URL on the server, and whether anything is rewriting responses in between")
 		return
 	}
 	r.add(g, "upload", Pass, "201 created", "")
 
-	downloaded, status, err := r.get(ctx, uploaded.URL)
+	downloaded, status, err := r.get(ctx, first.URL)
 	switch {
 	case err != nil:
 		r.add(g, "download", Fail, err.Error(), "")
@@ -669,7 +669,7 @@ func (r *runner) checkEndToEnd(ctx context.Context) {
 		r.add(g, "download", Pass, "bytes match, no authentication required", "")
 	}
 
-	delReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, uploaded.URL, nil)
+	delReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, first.URL, nil)
 	if err == nil {
 		delReq.Header.Set("Authorization", "Bearer "+token)
 		if delResp, err := r.http.Do(delReq); err == nil {

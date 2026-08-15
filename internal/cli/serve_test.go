@@ -256,13 +256,15 @@ func TestServeServesAndShutsDownCleanly(t *testing.T) {
 		t.Fatalf("upload = %d", up.StatusCode)
 	}
 	var got struct {
-		URL string `json:"url"`
+		Files []struct {
+			URL string `json:"url"`
+		} `json:"files"`
 	}
 	if err := json.NewDecoder(up.Body).Decode(&got); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(got.URL, base+"/f/") {
-		t.Errorf("url = %q", got.URL)
+	if len(got.Files) != 1 || !strings.HasPrefix(got.Files[0].URL, base+"/f/") {
+		t.Errorf("files = %+v", got.Files)
 	}
 }
 

