@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -11,11 +12,18 @@ import (
 // quietly stops matching the tool is worse than none, so the two are compared
 // here rather than trusted.
 func TestReadmeCommandLineIsUpToDate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// Some defaults are platform-dependent (`godrop init --data-dir` is
+		// C:\ProgramData\GoDrop here), so the file can only match the platform
+		// it was generated on.
+		t.Skip("the reference is generated on a POSIX machine")
+	}
 	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := string(readme)
+	// A checkout with CRLF endings still describes the same commands.
+	text := strings.ReplaceAll(string(readme), "\r\n", "\n")
 
 	for _, args := range [][]string{
 		{},
