@@ -534,9 +534,50 @@ func TestLocalHealthURL(t *testing.T) {
 	}
 	for addr, want := range cases {
 		t.Setenv("GODROP_ADDR", addr)
-		if got := localHealthURL(); got != want {
-			t.Errorf("GODROP_ADDR=%q gives %q, want %q", addr, got, want)
+		got, insecure := localHealthURL()
+		if got != want || insecure {
+			t.Errorf("GODROP_ADDR=%q gives %q (insecure=%t), want %q", addr, got, insecure, want)
 		}
+	}
+}
+
+func TestTheHealthProbeFollowsTLS(t *testing.T) {
+	// The container HEALTHCHECK runs this. Probing http on the https port
+	// would report a perfectly healthy server as dead for ever.
+	t.Setenv("GODROP_TLS", "auto")
+	t.Setenv("GODROP_ADDR", "")
+	got, insecure := localHealthURL()
+	if want := "https://127.0.0.1" + config.DefaultTLSAddr + "/healthz"; got != want || !insecure {
+		t.Errorf("with TLS on: %q (insecure=%t), want %q", got, insecure, want)
+	}
+
+	t.Setenv("GODROP_ADDR", "8443")
+	if got, insecure := localHealthURL(); got != "https://127.0.0.1:8443/healthz" || !insecure {
+		t.Errorf("a bare port with TLS gives %q (insecure=%t)", got, insecure)
+	}
+
+	// A certificate on its own turns TLS on, with no GODROP_TLS at all.
+	t.Setenv("GODROP_TLS", "")
+	t.Setenv("GODROP_TLS_CERT", "/etc/ssl/fullchain.pem")
+	t.Setenv("GODROP_ADDR", ":47952")
+	if got, _ := localHealthURL(); got != "https://127.0.0.1:47952/healthz" {
+		t.Errorf("with a certificate configured: %q", got)
+	}
+}
+
+func TestHealthProbesOverTLS(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	// The server's certificate is self-signed and issued for 127.0.0.1, which
+	// is exactly the situation in a container: the probe must not verify it.
+	addr := strings.TrimPrefix(srv.URL, "https://")
+	t.Setenv("GODROP_TLS", "auto")
+	t.Setenv("GODROP_ADDR", addr)
+	if code, _, stderr := run(t, testBuild(), "health"); code != 0 {
+		t.Errorf("exit = %d, stderr = %s", code, stderr)
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/fatihbaltaci/GoDrop/internal/config"
 	"github.com/fatihbaltaci/GoDrop/internal/telemetry"
 )
 
@@ -25,6 +26,11 @@ func (r *runner) targetURL() string {
 	}
 	if r.Config.BaseURL != "" {
 		return strings.TrimRight(r.Config.BaseURL, "/")
+	}
+	// The scheme has to follow the certificate, or every check below probes
+	// the wrong protocol on the right port.
+	if r.Config.TLS != config.TLSOff {
+		return "https://" + localAddr(r.Config.Addr)
 	}
 	return "http://" + localAddr(r.Config.Addr)
 }

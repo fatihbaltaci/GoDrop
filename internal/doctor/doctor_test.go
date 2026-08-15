@@ -1573,3 +1573,21 @@ func TestPlainHTTPOnAPublicAddressSuggestsAutomaticTLS(t *testing.T) {
 		t.Errorf("https = %s (%q), fix %q", got.Status, got.Detail, got.Fix)
 	}
 }
+
+func TestTheLocalProbeFollowsTLS(t *testing.T) {
+	// Without a base URL the diagnosis falls back to the listen address, and
+	// probing http on the https port would report a healthy server as broken.
+	cfg := baseConfig(t)
+	cfg.BaseURL = ""
+	cfg.Addr = ":47953"
+	cfg.TLS = config.TLSAuto
+
+	r := &runner{Options: Options{Config: cfg}}
+	if got := r.targetURL(); got != "https://127.0.0.1:47953" {
+		t.Errorf("targetURL = %q", got)
+	}
+	cfg.TLS = config.TLSOff
+	if got := r.targetURL(); got != "http://127.0.0.1:47953" {
+		t.Errorf("targetURL = %q", got)
+	}
+}

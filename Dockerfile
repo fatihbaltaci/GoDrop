@@ -45,11 +45,12 @@ FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /godrop /godrop
 COPY --from=build --chown=nonroot:nonroot /data /data
 
-ENV GODROP_DATA_DIR=/data \
-    GODROP_ADDR=:8747
+# The listen address is deliberately not set here: GoDrop picks 8747 on its
+# own, and 443 when TLS is on, which a fixed value here would override.
+ENV GODROP_DATA_DIR=/data
 
 USER nonroot:nonroot
-EXPOSE 8747
+EXPOSE 8747 443 80
 VOLUME ["/data"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
