@@ -7,9 +7,11 @@
   Written in Go: one binary, no database, files on disk.
 </p>
 
-[![CI](https://github.com/fatihbaltaci/GoDrop/actions/workflows/ci.yml/badge.svg)](https://github.com/fatihbaltaci/GoDrop/actions/workflows/ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/fatihbaltaci/GoDrop.svg)](https://pkg.go.dev/github.com/fatihbaltaci/GoDrop)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+<p align="center">
+  <a href="https://github.com/fatihbaltaci/GoDrop/actions/workflows/ci.yml"><img src="https://github.com/fatihbaltaci/GoDrop/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://pkg.go.dev/github.com/fatihbaltaci/GoDrop"><img src="https://pkg.go.dev/badge/github.com/fatihbaltaci/GoDrop.svg" alt="Go Reference"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+</p>
 
 ```bash
 curl -X POST \
