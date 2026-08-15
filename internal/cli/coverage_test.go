@@ -32,6 +32,10 @@ func devNull(t *testing.T) *os.File {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = f.Close() })
+	info, err := f.Stat()
+	if err != nil || info.Mode()&os.ModeCharDevice == 0 {
+		t.Skipf("%s is not a character device on this platform", os.DevNull)
+	}
 	return f
 }
 
@@ -170,9 +174,7 @@ func TestTelemetrySetJSONOutput(t *testing.T) {
 // telemetry setup can fail on an otherwise healthy installation.
 func blockInstallID(t *testing.T, dir string) {
 	t.Helper()
-	if os.Geteuid() == 0 {
-		t.Skip("permission checks are meaningless as root")
-	}
+	requireStrictPermissions(t)
 	path := filepath.Join(dir, telemetry.FileName)
 	if err := os.WriteFile(path, []byte("existing"), 0o000); err != nil {
 		t.Fatal(err)
@@ -221,9 +223,7 @@ func TestServeWarnsWhenTelemetryCannotStart(t *testing.T) {
 }
 
 func TestServeWarnsWhenTokenUsageCannotBeSaved(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("permission checks are meaningless as root")
-	}
+	requireStrictPermissions(t)
 	dir := t.TempDir()
 	store, err := tokens.New(tokens.Path(dir), nil)
 	if err != nil {
@@ -366,9 +366,7 @@ func TestJSONOutputReportsAWriteFailure(t *testing.T) {
 }
 
 func TestTemporaryTokenReportsAStoreThatCannotBeOpened(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("permission checks are meaningless as root")
-	}
+	requireStrictPermissions(t)
 	dir := t.TempDir()
 	path := tokens.Path(dir)
 	if err := os.WriteFile(path, []byte(`{"tokens":[]}`), 0o000); err != nil {
@@ -430,9 +428,7 @@ func TestInitReportsATelemetryOptOutFailure(t *testing.T) {
 }
 
 func TestTemporaryTokenReportsAStoreThatCannotBeWritten(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("permission checks are meaningless as root")
-	}
+	requireStrictPermissions(t)
 	dir := t.TempDir()
 	if err := os.WriteFile(tokens.Path(dir), []byte(`{"tokens":[]}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -445,5 +441,39 @@ func TestTemporaryTokenReportsAStoreThatCannotBeWritten(t *testing.T) {
 	cfg := mustConfig(t, map[string]string{"GODROP_DATA_DIR": dir})
 	if _, _, err := temporaryToken(cfg); err == nil {
 		t.Error("a token store that cannot be written should be reported")
+	}
+}
+
+func TestDefaultHint(t *testing.T) {
+	cases := []struct{ desc, def, want string }{
+		{"", "100MB", "Press enter to keep 100MB."},
+		{"Per-file limit.", "100MB", "Per-file limit.\nPress enter to keep 100MB."},
+		{"", "", "Press enter to leave this empty."},
+		{"Optional.", "", "Optional.\nPress enter to leave this empty."},
+	}
+	for _, c := range cases {
+		if got := defaultHint(c.desc, c.def); got != c.want {
+			t.Errorf("defaultHint(%q, %q) = %q, want %q", c.desc, c.def, got, c.want)
+		}
+	}
+}
+
+func TestNoInputFlagIsTheConventionalSpelling(t *testing.T) {
+	outDir, dataDir := t.TempDir(), t.TempDir()
+	code, _, stderr := run(t, testBuild(), "init", "--no-input",
+		"--out-dir", outDir, "--data-dir", dataDir, "--no-external-check", "--deployment", "env")
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, ".env")); err != nil {
+		t.Errorf("--no-input should run the wizard without prompting: %v", err)
+	}
+	// The older spelling still works but is hidden from help.
+	_, help, _ := run(t, testBuild(), "init", "--help")
+	if strings.Contains(help, "--non-interactive") {
+		t.Error("the deprecated alias should not clutter the help output")
+	}
+	if !strings.Contains(help, "--no-input") {
+		t.Error("--no-input should be documented")
 	}
 }

@@ -39,8 +39,10 @@ func (p *huhPrompter) Section(title, desc string) {
 func (p *huhPrompter) Input(label, desc, def string, validate func(string) error) (string, error) {
 	value := def
 	field := huh.NewInput().Title(label).Value(&value)
-	if desc != "" {
-		field = field.Description(desc)
+	// The default is pre-filled and editable; saying so removes the doubt about
+	// whether pressing enter accepts it.
+	if hint := defaultHint(desc, def); hint != "" {
+		field = field.Description(hint)
 	}
 	if def != "" {
 		field = field.Placeholder(def)
@@ -102,6 +104,22 @@ func (p *huhPrompter) run(field huh.Field) error {
 }
 
 var errCancelled = errors.New("setup cancelled")
+
+// defaultHint appends the "what happens if I just press enter" line that every
+// good installer shows next to a pre-filled answer.
+func defaultHint(desc, def string) string {
+	var hint string
+	switch {
+	case def != "":
+		hint = "Press enter to keep " + def + "."
+	default:
+		hint = "Press enter to leave this empty."
+	}
+	if desc == "" {
+		return hint
+	}
+	return desc + "\n" + hint
+}
 
 // flagPrompter answers from pre-supplied values instead of asking. It backs
 // --non-interactive, so CI pipelines and agents run the very same wizard code

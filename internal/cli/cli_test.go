@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -203,9 +204,7 @@ func TestTokenCreateRejectsBadNames(t *testing.T) {
 }
 
 func TestTokenCommandsReportStoreFailures(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("permission checks are meaningless as root")
-	}
+	requireStrictPermissions(t)
 	t.Setenv("GODROP_TOKENS", "")
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, tokens.FileName), []byte("{{{"), 0o600); err != nil {
@@ -364,9 +363,7 @@ func TestTelemetrySendFailureIsReported(t *testing.T) {
 }
 
 func TestTelemetryReportsWriteFailures(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("permission checks are meaningless as root")
-	}
+	requireStrictPermissions(t)
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0o500); err != nil {
 		t.Fatal(err)
@@ -519,5 +516,27 @@ func TestLocalHealthURL(t *testing.T) {
 		if got := localHealthURL(); got != want {
 			t.Errorf("GODROP_ADDR=%q gives %q, want %q", addr, got, want)
 		}
+	}
+}
+
+// requireStrictPermissions skips a test that depends on POSIX permission
+// semantics. As root every mode is writable anyway, and on Windows chmod only
+// toggles a read-only bit, so the situations these tests create cannot exist.
+func requireStrictPermissions(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes are advisory on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("permission checks are meaningless as root")
+	}
+}
+
+// requirePOSIXModes skips a test that asserts exact file modes. Windows has no
+// POSIX permission bits, so a file created with 0600 does not report 0600.
+func requirePOSIXModes(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes are not POSIX bits on Windows")
 	}
 }

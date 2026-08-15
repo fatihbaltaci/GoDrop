@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -256,6 +257,9 @@ func waitForListener(t *testing.T, addr string) {
 // fakeDocker puts a stub docker command at the front of PATH.
 func fakeDocker(t *testing.T, exitCode int) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the stub is a POSIX shell script")
+	}
 	dir := t.TempDir()
 	script := "#!/bin/sh\nexit " + string(rune('0'+exitCode)) + "\n"
 	path := filepath.Join(dir, "docker")
@@ -430,9 +434,7 @@ func TestFlushTokensWritesPendingUsage(t *testing.T) {
 }
 
 func TestFlushTokensLogsFailures(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("permission checks are meaningless as root")
-	}
+	requireStrictPermissions(t)
 	original := flushInterval
 	flushInterval = 10 * time.Millisecond
 	t.Cleanup(func() { flushInterval = original })

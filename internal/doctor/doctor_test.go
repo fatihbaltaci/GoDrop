@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -198,7 +199,7 @@ func TestDataDirectoryThatIsAFileFails(t *testing.T) {
 }
 
 func TestUnreadableDataDirectoryFails(t *testing.T) {
-	requireNonRoot(t)
+	requireStrictPermissions(t)
 	cfg := baseConfig(t)
 	nested := filepath.Join(cfg.DataDir, "nested")
 	if err := os.MkdirAll(nested, 0o000); err != nil {
@@ -214,7 +215,7 @@ func TestUnreadableDataDirectoryFails(t *testing.T) {
 }
 
 func TestReadOnlyDataDirectoryFails(t *testing.T) {
-	requireNonRoot(t)
+	requireStrictPermissions(t)
 	cfg := baseConfig(t)
 	if _, err := storage.New(cfg.DataDir, 0); err != nil {
 		t.Fatal(err)
@@ -264,7 +265,8 @@ func TestWeakTokensAreReported(t *testing.T) {
 }
 
 func TestWorldReadableDataDirectoryIsAWarning(t *testing.T) {
-	requireNonRoot(t)
+	requirePOSIXModes(t)
+	requireStrictPermissions(t)
 	cfg := baseConfig(t)
 	if err := os.Chmod(cfg.DataDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -276,6 +278,7 @@ func TestWorldReadableDataDirectoryIsAWarning(t *testing.T) {
 }
 
 func TestTokenFilePermissionsAreChecked(t *testing.T) {
+	requirePOSIXModes(t)
 	cfg := baseConfig(t)
 	store, err := tokens.New(tokens.Path(cfg.DataDir), nil)
 	if err != nil {
@@ -298,6 +301,7 @@ func TestTokenFilePermissionsAreChecked(t *testing.T) {
 }
 
 func TestEnvFileIsChecked(t *testing.T) {
+	requirePOSIXModes(t)
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, ".env")
 	if err := os.WriteFile(envPath, []byte("GODROP_TOKENS=secret\n"), 0o644); err != nil {
@@ -814,8 +818,14 @@ func (t rewriteBody) RoundTrip(r *http.Request) (*http.Response, error) {
 	return resp, nil
 }
 
-func requireNonRoot(t *testing.T) {
+// requireStrictPermissions skips a test that depends on POSIX permission
+// semantics. As root every mode is writable anyway, and on Windows chmod only
+// toggles a read-only bit, so the situations these tests create cannot exist.
+func requireStrictPermissions(t *testing.T) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes are advisory on Windows")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("permission checks are meaningless as root")
 	}
@@ -1150,7 +1160,7 @@ func TestContainerDetectionUsesPlatformMarkers(t *testing.T) {
 }
 
 func TestUnreadableStorageTreeFails(t *testing.T) {
-	requireNonRoot(t)
+	requireStrictPermissions(t)
 	cfg := baseConfig(t)
 	blocked := filepath.Join(cfg.DataDir, "2026")
 	if err := os.MkdirAll(blocked, 0o000); err != nil {
@@ -1264,5 +1274,14 @@ func TestEndToEndReportsATransportFailureOnDelete(t *testing.T) {
 	})
 	if c := find(t, report, "delete"); c.Status != Fail {
 		t.Errorf("delete = %+v, want a failure", c)
+	}
+}
+
+// requirePOSIXModes skips a test that asserts exact file modes. Windows has no
+// POSIX permission bits, so a file created with 0600 does not report 0600.
+func requirePOSIXModes(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes are not POSIX bits on Windows")
 	}
 }

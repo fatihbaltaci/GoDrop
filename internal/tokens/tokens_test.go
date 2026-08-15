@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -65,6 +66,7 @@ func TestCreateAndVerify(t *testing.T) {
 }
 
 func TestTokenFileIsOwnerOnly(t *testing.T) {
+	requirePOSIXModes(t)
 	s, path := newTestStore(t)
 	if _, _, err := s.Create("x"); err != nil {
 		t.Fatal(err)
@@ -258,9 +260,7 @@ func TestCorruptTokenFileIsReported(t *testing.T) {
 }
 
 func TestUnreadableTokenFileIsReported(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("permission checks are meaningless as root")
-	}
+	requireStrictPermissions(t)
 	dir := t.TempDir()
 	path := Path(dir)
 	if err := os.WriteFile(path, []byte(`{"tokens":[]}`), 0o000); err != nil {
@@ -273,9 +273,7 @@ func TestUnreadableTokenFileIsReported(t *testing.T) {
 }
 
 func TestStatErrorIsReported(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("permission checks are meaningless as root")
-	}
+	requireStrictPermissions(t)
 	dir := t.TempDir()
 	blocked := filepath.Join(dir, "blocked")
 	if err := os.Mkdir(blocked, 0o000); err != nil {
@@ -288,9 +286,7 @@ func TestStatErrorIsReported(t *testing.T) {
 }
 
 func TestSaveFailsWhenDirectoryIsNotWritable(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("permission checks are meaningless as root")
-	}
+	requireStrictPermissions(t)
 	dir := t.TempDir()
 	s, err := New(Path(dir), nil)
 	if err != nil {
@@ -433,9 +429,7 @@ func TestWriteFileAtomicReportsRenameFailures(t *testing.T) {
 }
 
 func TestWriteFileAtomicReportsWriteFailures(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("permission checks are meaningless as root")
-	}
+	requireStrictPermissions(t)
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0o500); err != nil {
 		t.Fatal(err)
@@ -497,9 +491,7 @@ func TestStoreUsesTheRealClockByDefault(t *testing.T) {
 }
 
 func TestWriteFailsWhenTheDirectoryCannotBeCreated(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("permission checks are meaningless as root")
-	}
+	requireStrictPermissions(t)
 	parent := t.TempDir()
 	// Traversable but not writable: the token file is reported as missing, and
 	// then its directory cannot be created.
@@ -651,5 +643,27 @@ func TestFlushSkipsTokensThatVanished(t *testing.T) {
 	}
 	if _, ok := after.Verify(removed); ok {
 		t.Error("the revoked token came back")
+	}
+}
+
+// requireStrictPermissions skips a test that depends on POSIX permission
+// semantics. As root every mode is writable anyway, and on Windows chmod only
+// toggles a read-only bit, so the situations these tests create cannot exist.
+func requireStrictPermissions(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes are advisory on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("permission checks are meaningless as root")
+	}
+}
+
+// requirePOSIXModes skips a test that asserts exact file modes. Windows has no
+// POSIX permission bits, so a file created with 0600 does not report 0600.
+func requirePOSIXModes(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes are not POSIX bits on Windows")
 	}
 }

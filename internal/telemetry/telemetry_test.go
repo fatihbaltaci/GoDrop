@@ -208,6 +208,7 @@ func TestRunSurvivesAFailingEndpoint(t *testing.T) {
 }
 
 func TestInstallIDIsStableAndPrivate(t *testing.T) {
+	requirePOSIXModes(t)
 	dir := t.TempDir()
 	first, err := InstallID(dir)
 	if err != nil {
@@ -255,7 +256,7 @@ func TestInstallIDRegeneratesWhenBlank(t *testing.T) {
 }
 
 func TestInstallIDReportsReadErrors(t *testing.T) {
-	requireNonRoot(t)
+	requireStrictPermissions(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, FileName)
 	if err := os.WriteFile(path, []byte("abc"), 0o000); err != nil {
@@ -268,7 +269,7 @@ func TestInstallIDReportsReadErrors(t *testing.T) {
 }
 
 func TestInstallIDReportsWriteErrors(t *testing.T) {
-	requireNonRoot(t)
+	requireStrictPermissions(t)
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0o500); err != nil {
 		t.Fatal(err)
@@ -280,7 +281,7 @@ func TestInstallIDReportsWriteErrors(t *testing.T) {
 }
 
 func TestNewPropagatesInstallIDErrors(t *testing.T) {
-	requireNonRoot(t)
+	requireStrictPermissions(t)
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0o500); err != nil {
 		t.Fatal(err)
@@ -359,6 +360,7 @@ func TestFileExistsChecksTheFilesystem(t *testing.T) {
 }
 
 func TestOptOutRoundTrip(t *testing.T) {
+	requirePOSIXModes(t)
 	dir := t.TempDir()
 	if Disabled(dir) {
 		t.Error("telemetry starts enabled")
@@ -389,7 +391,7 @@ func TestOptOutRoundTrip(t *testing.T) {
 }
 
 func TestSetDisabledReportsErrors(t *testing.T) {
-	requireNonRoot(t)
+	requireStrictPermissions(t)
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0o500); err != nil {
 		t.Fatal(err)
@@ -406,7 +408,7 @@ func TestSetDisabledReportsErrors(t *testing.T) {
 }
 
 func TestSetDisabledReportsRemovalErrors(t *testing.T) {
-	requireNonRoot(t)
+	requireStrictPermissions(t)
 	dir := t.TempDir()
 	if err := SetDisabled(dir, true); err != nil {
 		t.Fatal(err)
@@ -434,15 +436,21 @@ func TestClientUsesTheRealClockByDefault(t *testing.T) {
 	}
 }
 
-func requireNonRoot(t *testing.T) {
+// requireStrictPermissions skips a test that depends on POSIX permission
+// semantics. As root every mode is writable anyway, and on Windows chmod only
+// toggles a read-only bit, so the situations these tests create cannot exist.
+func requireStrictPermissions(t *testing.T) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes are advisory on Windows")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("permission checks are meaningless as root")
 	}
 }
 
 func TestInstallIDReportsDirectoryCreationErrors(t *testing.T) {
-	requireNonRoot(t)
+	requireStrictPermissions(t)
 	parent := t.TempDir()
 	// Traversable but not writable: the lookup reports "not there yet", and
 	// then creating the directory is refused.
@@ -452,5 +460,14 @@ func TestInstallIDReportsDirectoryCreationErrors(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(parent, 0o700) })
 	if _, err := InstallID(filepath.Join(parent, "data")); err == nil {
 		t.Fatal("a data directory that cannot be created should be reported")
+	}
+}
+
+// requirePOSIXModes skips a test that asserts exact file modes. Windows has no
+// POSIX permission bits, so a file created with 0600 does not report 0600.
+func requirePOSIXModes(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes are not POSIX bits on Windows")
 	}
 }

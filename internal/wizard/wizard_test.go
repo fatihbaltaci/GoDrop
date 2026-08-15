@@ -3,6 +3,7 @@ package wizard
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -268,6 +269,7 @@ func TestFilesPerDeploymentStyle(t *testing.T) {
 }
 
 func TestWriteCreatesFilesWithTheRightPermissions(t *testing.T) {
+	requirePOSIXModes(t)
 	t.Parallel()
 	dir := t.TempDir()
 	a := Defaults()
@@ -315,9 +317,7 @@ func TestWriteRefusesToClobber(t *testing.T) {
 
 func TestWriteReportsFailures(t *testing.T) {
 	t.Parallel()
-	if os.Geteuid() == 0 {
-		t.Skip("permission checks are meaningless as root")
-	}
+	requireStrictPermissions(t)
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0o500); err != nil {
 		t.Fatal(err)
@@ -330,7 +330,7 @@ func TestWriteReportsFailures(t *testing.T) {
 
 func TestNextStepsMatchTheDeploymentStyle(t *testing.T) {
 	t.Parallel()
-	compose := strings.Join(NextSteps(withDeployment(DeployCompose, "https://f.example.com")), "\n")
+	compose := strings.Join(NextStepsFor("linux", withDeployment(DeployCompose, "https://f.example.com")), "\n")
 	if !strings.Contains(compose, "docker compose up -d") || !strings.Contains(compose, "godrop doctor") {
 		t.Errorf("compose steps = %s", compose)
 	}
@@ -338,16 +338,24 @@ func TestNextStepsMatchTheDeploymentStyle(t *testing.T) {
 		t.Error("an https deployment should mention starting the proxy")
 	}
 
-	systemd := strings.Join(NextSteps(withDeployment(DeploySystemd, "")), "\n")
-	for _, want := range []string{"useradd", "systemctl enable --now godrop", "chmod 600"} {
+	systemd := strings.Join(NextStepsFor("linux", withDeployment(DeploySystemd, "")), "\n")
+	for _, want := range []string{"useradd", "systemctl enable --now godrop", "/etc/godrop/godrop.env"} {
 		if !strings.Contains(systemd, want) {
 			t.Errorf("systemd steps should include %q:\n%s", want, systemd)
 		}
 	}
 
-	plain := strings.Join(NextSteps(withDeployment(DeployEnv, "")), "\n")
-	if !strings.Contains(plain, "source .env") || !strings.Contains(plain, "godrop serve") {
+	plain := strings.Join(NextStepsFor("linux", withDeployment(DeployEnv, "")), "\n")
+	if !strings.Contains(plain, ". ./.env") || !strings.Contains(plain, "godrop serve") {
 		t.Errorf("env steps = %s", plain)
+	}
+
+	windows := strings.Join(NextStepsFor("windows", withDeployment(DeployEnv, "")), "\n")
+	if strings.Contains(windows, "set -a") {
+		t.Errorf("Windows must not be told to use shell syntax it cannot run:\n%s", windows)
+	}
+	if !strings.Contains(windows, "SetEnvironmentVariable") {
+		t.Errorf("windows steps = %s", windows)
 	}
 }
 
@@ -399,7 +407,7 @@ func TestCurlExamplesAreReadyToRun(t *testing.T) {
 	a := Defaults()
 	a.BaseURL = "https://files.example.com"
 	a.Token = "gd_abc"
-	examples := strings.Join(CurlExamples(a), "\n")
+	examples := strings.Join(CurlExamplesFor("linux", a), "\n")
 	if !strings.Contains(examples, `-H "Authorization: Bearer gd_abc"`) {
 		t.Errorf("examples should carry the real token:\n%s", examples)
 	}
@@ -408,9 +416,16 @@ func TestCurlExamplesAreReadyToRun(t *testing.T) {
 	}
 
 	a.BaseURL = ""
-	local := strings.Join(CurlExamples(a), "\n")
+	local := strings.Join(CurlExamplesFor("linux", a), "\n")
 	if !strings.Contains(local, "http://localhost:8080/upload") {
 		t.Errorf("without a base URL the examples should target localhost:\n%s", local)
+	}
+
+	// In PowerShell "curl" is an alias for Invoke-WebRequest, which would fail
+	// on these flags, so Windows users are given curl.exe.
+	windows := strings.Join(CurlExamplesFor("windows", a), "\n")
+	if !strings.Contains(windows, "curl.exe -X POST") {
+		t.Errorf("windows examples = %s", windows)
 	}
 }
 
@@ -553,3 +568,89 @@ var errCancelledForTest = errCancelled{}
 type errCancelled struct{}
 
 func (errCancelled) Error() string { return "cancelled" }
+
+// requireStrictPermissions skips a test that depends on POSIX permission
+// semantics. As root every mode is writable anyway, and on Windows chmod only
+// toggles a read-only bit, so the situations these tests create cannot exist.
+func requireStrictPermissions(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes are advisory on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("permission checks are meaningless as root")
+	}
+}
+
+// requirePOSIXModes skips a test that asserts exact file modes. Windows has no
+// POSIX permission bits, so a file created with 0600 does not report 0600.
+func requirePOSIXModes(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes are not POSIX bits on Windows")
+	}
+}
+
+func TestDeploymentOptionsMatchThePlatform(t *testing.T) {
+	t.Parallel()
+	linux := DeploymentOptions("linux")
+	if len(linux) != 3 {
+		t.Fatalf("linux options = %d, want compose, systemd and env", len(linux))
+	}
+	if !strings.Contains(linux[0].Label, "recommended") {
+		t.Errorf("the first option should be marked recommended, got %q", linux[0].Label)
+	}
+
+	for _, goos := range []string{"darwin", "windows"} {
+		for _, o := range DeploymentOptions(goos) {
+			if o.Value == DeploySystemd {
+				t.Errorf("%s has no systemd, so it must not be offered", goos)
+			}
+		}
+		if len(DeploymentOptions(goos)) != 2 {
+			t.Errorf("%s options = %+v, want compose and env", goos, DeploymentOptions(goos))
+		}
+	}
+}
+
+func TestDefaultDataDirPerPlatform(t *testing.T) {
+	t.Parallel()
+	if got := DefaultDataDir("linux", func(string) string { return "" }); got != "/var/lib/godrop" {
+		t.Errorf("linux data dir = %q", got)
+	}
+	if got := DefaultDataDir("darwin", func(string) string { return "" }); got != "/var/lib/godrop" {
+		t.Errorf("darwin data dir = %q", got)
+	}
+	got := DefaultDataDir("windows", func(key string) string {
+		if key == "ProgramData" {
+			return `C:\ProgramData`
+		}
+		return ""
+	})
+	if got != filepath.Join(`C:\ProgramData`, "GoDrop") {
+		t.Errorf("windows data dir = %q", got)
+	}
+	if got := DefaultDataDir("windows", func(string) string { return "" }); got != `C:\ProgramData\GoDrop` {
+		t.Errorf("windows fallback = %q", got)
+	}
+}
+
+func TestDefaultsUseThisPlatform(t *testing.T) {
+	t.Parallel()
+	if Defaults().DataDir != DefaultDataDir(runtime.GOOS, os.Getenv) {
+		t.Error("Defaults should use this platform's data directory")
+	}
+}
+
+func TestPlatformWrappersUseThisHost(t *testing.T) {
+	t.Parallel()
+	a := withDeployment(DeployEnv, "")
+	a.Token = "gd_abc"
+
+	if got, want := NextSteps(a), NextStepsFor(runtime.GOOS, a); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("NextSteps should render for this platform:\n%v\n%v", got, want)
+	}
+	if got, want := CurlExamples(a), CurlExamplesFor(runtime.GOOS, a); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("CurlExamples should render for this platform:\n%v\n%v", got, want)
+	}
+}

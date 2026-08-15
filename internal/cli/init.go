@@ -36,8 +36,9 @@ func newInitCmd(build Build) *cobra.Command {
 files, creates your first API token and — if you like — starts the service and
 confirms that the outside world can actually reach it.
 
-Every answer can be supplied as a flag instead; with --non-interactive the same
-wizard runs without asking anything, which is what CI and agents should use.`,
+Every answer can be supplied as a flag instead; with --no-input the same wizard
+runs without asking anything, which is what CI and agents should use. Prompts
+are skipped automatically when there is no terminal.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := newOutput(cmd)
@@ -129,7 +130,11 @@ wizard runs without asking anything, which is what CI and agents should use.`,
 	f.StringVar(&answers.Deployment, "deployment", answers.Deployment, "compose, systemd or env")
 	f.StringVar(&answers.TokenName, "token-name", answers.TokenName, "name for the generated token")
 	f.BoolVar(&answers.Telemetry, "telemetry", answers.Telemetry, "send the anonymous daily heartbeat")
-	f.BoolVar(&nonInteractive, "non-interactive", false, "never prompt; use flags and defaults")
+	// --no-input is the conventional name for "never prompt"; the older spelling
+	// stays as a hidden alias so existing scripts keep working.
+	f.BoolVar(&nonInteractive, "no-input", false, "never prompt; use flags and defaults (for CI and agents)")
+	f.BoolVar(&nonInteractive, "non-interactive", false, "alias for --no-input")
+	_ = f.MarkHidden("non-interactive")
 	f.BoolVar(&force, "force", false, "overwrite existing configuration files")
 	f.BoolVar(&skipExternal, "no-external-check", false, "do not ask godrop.sh to verify reachability")
 	f.BoolVar(&start, "start", false, "start the service when setup finishes")

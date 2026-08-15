@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/fatihbaltaci/GoDrop/internal/config"
@@ -43,7 +44,7 @@ type Answers struct {
 // Defaults returns the starting point offered to the user.
 func Defaults() Answers {
 	return Answers{
-		DataDir:       "/var/lib/godrop",
+		DataDir:       DefaultDataDir(runtime.GOOS, os.Getenv),
 		Port:          "8080",
 		MaxFileSize:   "100MB",
 		MaxTotalSize:  "20GB",
@@ -54,6 +55,35 @@ func Defaults() Answers {
 		ExternalCheck: true,
 		Image:         "ghcr.io/fatihbaltaci/godrop:latest",
 	}
+}
+
+// DefaultDataDir is where uploads live on each platform: the usual place for
+// service state on Unix, and ProgramData on Windows.
+func DefaultDataDir(goos string, env func(string) string) string {
+	if goos == "windows" {
+		if base := env("ProgramData"); base != "" {
+			return filepath.Join(base, "GoDrop")
+		}
+		return `C:\ProgramData\GoDrop`
+	}
+	return "/var/lib/godrop"
+}
+
+// DeploymentOptions lists the ways GoDrop can be set up on this platform.
+// systemd is offered only where it exists — on macOS and Windows it would be
+// advice the user cannot follow.
+func DeploymentOptions(goos string) []Option {
+	options := []Option{
+		{Label: "docker compose (recommended)", Value: DeployCompose, Desc: "writes docker-compose.yml and .env"},
+	}
+	if goos == "linux" {
+		options = append(options, Option{
+			Label: "systemd service", Value: DeploySystemd, Desc: "writes a hardened unit file",
+		})
+	}
+	return append(options, Option{
+		Label: ".env file only", Value: DeployEnv, Desc: "you start the binary yourself",
+	})
 }
 
 // ValidateBaseURL accepts an absolute http(s) URL, or an empty string meaning
@@ -320,7 +350,11 @@ func Write(dir string, files []GeneratedFile, force bool) ([]string, error) {
 
 // NextSteps is the closing checklist: how to start the service, how to verify
 // it, and — when a port must be reachable — how to open it.
-func NextSteps(a Answers) []string {
+func NextSteps(a Answers) []string { return NextStepsFor(runtime.GOOS, a) }
+
+// NextStepsFor renders the checklist for a given platform. Commands a user
+// cannot run are worse than no advice, so the shell syntax follows the host.
+func NextStepsFor(goos string, a Answers) []string {
 	var steps []string
 	switch a.Deployment {
 	case DeployCompose:
@@ -328,12 +362,18 @@ func NextSteps(a Answers) []string {
 	case DeploySystemd:
 		steps = append(steps,
 			"sudo useradd --system --home "+a.DataDir+" --shell /usr/sbin/nologin godrop || true",
-			"sudo mkdir -p "+a.DataDir+" && sudo chown godrop:godrop "+a.DataDir,
-			"sudo mv .env "+filepath.Join(a.DataDir, "godrop.env")+" && sudo chmod 600 "+filepath.Join(a.DataDir, "godrop.env"),
+			"sudo mkdir -p "+a.DataDir+" /etc/godrop && sudo chown godrop:godrop "+a.DataDir,
+			"sudo install -m 640 -o root -g godrop .env /etc/godrop/godrop.env && rm .env",
 			"sudo mv godrop.service /etc/systemd/system/godrop.service",
 			"sudo systemctl daemon-reload && sudo systemctl enable --now godrop")
-	default:
-		steps = append(steps, "set -a && source .env && set +a", "godrop serve")
+	case DeployEnv:
+		if goos == "windows" {
+			steps = append(steps,
+				`Get-Content .env | ForEach-Object { if ($_ -match '^([^#=]+)=(.*)$') { [Environment]::SetEnvironmentVariable($Matches[1], $Matches[2]) } }`,
+				"godrop serve")
+		} else {
+			steps = append(steps, "set -a && . ./.env && set +a", "godrop serve")
+		}
 	}
 	if a.BaseURL != "" && strings.HasPrefix(a.BaseURL, "https://") {
 		steps = append(steps, "sudo caddy run --config Caddyfile   # or: sudo systemctl reload caddy")
@@ -385,14 +425,23 @@ func PublicPort(a Answers) int {
 }
 
 // CurlExamples renders ready-to-run commands for the finished installation.
-func CurlExamples(a Answers) []string {
+func CurlExamples(a Answers) []string { return CurlExamplesFor(runtime.GOOS, a) }
+
+// CurlExamplesFor renders the examples for a given platform. On Windows the
+// command is curl.exe: plain "curl" in PowerShell is an alias for
+// Invoke-WebRequest, which does not understand these flags.
+func CurlExamplesFor(goos string, a Answers) []string {
 	base := a.BaseURL
 	if base == "" {
 		base = "http://localhost:" + a.Port
 	}
+	curl := "curl"
+	if goos == "windows" {
+		curl = "curl.exe"
+	}
 	return []string{
-		fmt.Sprintf("curl -X POST -H \"Authorization: Bearer %s\" -F \"file=@photo.jpg\" %s/upload", a.Token, base),
-		fmt.Sprintf("curl -O %s/f/<id>/<name>", base),
-		fmt.Sprintf("curl -X DELETE -H \"Authorization: Bearer %s\" %s/f/<id>/<name>", a.Token, base),
+		fmt.Sprintf("%s -X POST -H \"Authorization: Bearer %s\" -F \"file=@photo.jpg\" %s/upload", curl, a.Token, base),
+		fmt.Sprintf("%s -O %s/f/<id>/<name>", curl, base),
+		fmt.Sprintf("%s -X DELETE -H \"Authorization: Bearer %s\" %s/f/<id>/<name>", curl, a.Token, base),
 	}
 }

@@ -42,7 +42,7 @@ func TestCreateFailsWhenDirectoryCannotBeCreated(t *testing.T) {
 }
 
 func TestCreateFailsWhenDirectoryIsReadOnly(t *testing.T) {
-	requireNonRoot(t)
+	requireStrictPermissions(t)
 	s := newTestStore(t, 0)
 	dir := filepath.Join(s.Root(), "2026", "08", "15")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -59,7 +59,7 @@ func TestCreateFailsWhenDirectoryIsReadOnly(t *testing.T) {
 }
 
 func TestOpenSurfacesPermissionErrors(t *testing.T) {
-	requireNonRoot(t)
+	requireStrictPermissions(t)
 	s := newTestStore(t, 0)
 	f, err := s.Create("txt", strings.NewReader("secret"), 1<<20)
 	if err != nil {
@@ -80,7 +80,7 @@ func TestOpenSurfacesPermissionErrors(t *testing.T) {
 }
 
 func TestDeleteSurfacesPermissionErrors(t *testing.T) {
-	requireNonRoot(t)
+	requireStrictPermissions(t)
 	s := newTestStore(t, 0)
 	f, err := s.Create("txt", strings.NewReader("secret"), 1<<20)
 	if err != nil {
@@ -99,7 +99,7 @@ func TestDeleteSurfacesPermissionErrors(t *testing.T) {
 }
 
 func TestDeleteSurfacesStatErrors(t *testing.T) {
-	requireNonRoot(t)
+	requireStrictPermissions(t)
 	s := newTestStore(t, 0)
 	f, err := s.Create("txt", strings.NewReader("secret"), 1<<20)
 	if err != nil {
@@ -117,7 +117,7 @@ func TestDeleteSurfacesStatErrors(t *testing.T) {
 }
 
 func TestNewSurfacesScanErrors(t *testing.T) {
-	requireNonRoot(t)
+	requireStrictPermissions(t)
 	dir := t.TempDir()
 	blocked := filepath.Join(dir, "2026")
 	if err := os.MkdirAll(blocked, 0o000); err != nil {
@@ -149,7 +149,7 @@ func TestPruneStopsAtNonEmptyDirectory(t *testing.T) {
 }
 
 func TestCleanupSurfacesRemoveErrors(t *testing.T) {
-	requireNonRoot(t)
+	requireStrictPermissions(t)
 	s := newTestStore(t, 0)
 	f, err := s.Create("txt", strings.NewReader("old"), 1<<20)
 	if err != nil {
@@ -177,7 +177,7 @@ func TestCleanupSurfacesRemoveErrors(t *testing.T) {
 // DirEntry.Info(), which is otherwise only reachable by racing a delete.
 func listableButNotStatable(t *testing.T, dir string) {
 	t.Helper()
-	requireNonRoot(t)
+	requireStrictPermissions(t)
 	if err := os.Chmod(dir, 0o400); err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestOrphansSurfacesEntryInfoErrors(t *testing.T) {
 }
 
 func TestOpenSurfacesStatErrors(t *testing.T) {
-	requireNonRoot(t)
+	requireStrictPermissions(t)
 	s := newTestStore(t, 0)
 	f, err := s.Create("txt", strings.NewReader("secret"), 1<<20)
 	if err != nil {

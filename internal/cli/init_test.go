@@ -26,6 +26,7 @@ func initArgs(outDir, dataDir string, extra ...string) []string {
 }
 
 func TestInitNonInteractiveWritesEverything(t *testing.T) {
+	requirePOSIXModes(t)
 	outDir, dataDir := t.TempDir(), t.TempDir()
 	code, out, stderr := run(t, testBuild(), initArgs(outDir, dataDir,
 		"--base-url", "https://files.example.com", "--json")...)
@@ -155,9 +156,7 @@ func TestInitRecordsTelemetryOptOut(t *testing.T) {
 }
 
 func TestInitReportsATokenStoreFailure(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("permission checks are meaningless as root")
-	}
+	requireStrictPermissions(t)
 	dataDir := t.TempDir()
 	if err := os.WriteFile(tokens.Path(dataDir), []byte("{{{"), 0o600); err != nil {
 		t.Fatal(err)
@@ -172,9 +171,7 @@ func TestInitReportsATokenStoreFailure(t *testing.T) {
 }
 
 func TestInitReportsAnUnwritableOutputDirectory(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("permission checks are meaningless as root")
-	}
+	requireStrictPermissions(t)
 	outDir := t.TempDir()
 	if err := os.Chmod(outDir, 0o500); err != nil {
 		t.Fatal(err)

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -662,9 +663,7 @@ func TestDeleteMalformedIdentifier(t *testing.T) {
 }
 
 func TestDeleteReportsStorageFailures(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("permission checks are meaningless as root")
-	}
+	requireStrictPermissions(t)
 	h := newHarness(t, nil)
 	got := h.uploadOK(t, [2]string{"photo.jpg", "bytes"})
 	id, ext := storage.SplitName(got.Files[0].ID)
@@ -699,9 +698,7 @@ func TestHealthAndReadiness(t *testing.T) {
 }
 
 func TestReadinessFailsWhenStorageIsNotWritable(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("permission checks are meaningless as root")
-	}
+	requireStrictPermissions(t)
 	h := newHarness(t, nil)
 	if err := os.Chmod(h.store.Root(), 0o500); err != nil {
 		t.Fatal(err)
@@ -905,5 +902,18 @@ func TestServerDefaultsWhenOptionsAreSparse(t *testing.T) {
 	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
+	}
+}
+
+// requireStrictPermissions skips a test that depends on POSIX permission
+// semantics. As root every mode is writable anyway, and on Windows chmod only
+// toggles a read-only bit, so the situations these tests create cannot exist.
+func requireStrictPermissions(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes are advisory on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("permission checks are meaningless as root")
 	}
 }

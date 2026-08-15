@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -26,6 +27,7 @@ func newTestStore(t *testing.T, maxTotal int64) *Store {
 }
 
 func TestCreateStoresFileUnderDateDirectory(t *testing.T) {
+	requirePOSIXModes(t)
 	s := newTestStore(t, 0)
 	f, err := s.Create("jpg", strings.NewReader("hello"), 1<<20)
 	if err != nil {
@@ -358,7 +360,7 @@ func TestWritable(t *testing.T) {
 	if err := s.Writable(); err != nil {
 		t.Fatalf("Writable: %v", err)
 	}
-	requireNonRoot(t)
+	requireStrictPermissions(t)
 	if err := os.Chmod(s.Root(), 0o500); err != nil {
 		t.Fatal(err)
 	}
@@ -436,7 +438,7 @@ func TestCleanupPrunesEmptyDirectories(t *testing.T) {
 }
 
 func TestCleanupReportsWalkErrors(t *testing.T) {
-	requireNonRoot(t)
+	requireStrictPermissions(t)
 	s := newTestStore(t, 0)
 	if _, err := s.Create("txt", strings.NewReader("x"), 1<<20); err != nil {
 		t.Fatal(err)
@@ -499,7 +501,7 @@ func TestOrphans(t *testing.T) {
 }
 
 func TestOrphansReportsWalkErrors(t *testing.T) {
-	requireNonRoot(t)
+	requireStrictPermissions(t)
 	s := newTestStore(t, 0)
 	if _, err := s.Create("txt", strings.NewReader("x"), 1<<20); err != nil {
 		t.Fatal(err)
@@ -599,11 +601,24 @@ func mustWrite(t *testing.T, path, content string) {
 	}
 }
 
-// requireNonRoot skips permission-based tests when running as root, where
-// chmod cannot take away access.
-func requireNonRoot(t *testing.T) {
+// requireStrictPermissions skips a test that depends on POSIX permission
+// semantics. As root every mode is writable anyway, and on Windows chmod only
+// toggles a read-only bit, so the situations these tests create cannot exist.
+func requireStrictPermissions(t *testing.T) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes are advisory on Windows")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("permission checks are meaningless as root")
+	}
+}
+
+// requirePOSIXModes skips a test that asserts exact file modes. Windows has no
+// POSIX permission bits, so a file created with 0600 does not report 0600.
+func requirePOSIXModes(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes are not POSIX bits on Windows")
 	}
 }

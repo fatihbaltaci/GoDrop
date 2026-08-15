@@ -1,5 +1,7 @@
 package wizard
 
+import "runtime"
+
 // Option is one choice offered by a Select prompt.
 type Option struct {
 	Label string
@@ -56,11 +58,8 @@ func Run(p Prompter, a Answers) (Answers, error) {
 	if a.Port, err = p.Input("Listen port", "The port GoDrop binds to locally.", a.Port, ValidatePort); err != nil {
 		return a, err
 	}
-	if a.Deployment, err = p.Select("Deployment style", "", []Option{
-		{Label: "docker compose", Value: DeployCompose, Desc: "writes docker-compose.yml and .env"},
-		{Label: "systemd service", Value: DeploySystemd, Desc: "writes a hardened unit file"},
-		{Label: ".env file only", Value: DeployEnv, Desc: "you start the binary yourself"},
-	}, a.Deployment); err != nil {
+	if a.Deployment, err = p.Select("Deployment style", "",
+		DeploymentOptions(runtime.GOOS), a.Deployment); err != nil {
 		return a, err
 	}
 

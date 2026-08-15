@@ -83,9 +83,7 @@ func TestServeRejectsBrokenConfiguration(t *testing.T) {
 }
 
 func TestServeReportsUnusableStorage(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("permission checks are meaningless as root")
-	}
+	requireStrictPermissions(t)
 	dir := t.TempDir()
 	blocked := filepath.Join(dir, "blocked")
 	if err := os.MkdirAll(blocked, 0o000); err != nil {
@@ -358,9 +356,7 @@ func TestCleanupIsDisabledWithoutRetention(t *testing.T) {
 }
 
 func TestCleanupReportsFailures(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("permission checks are meaningless as root")
-	}
+	requireStrictPermissions(t)
 	dir := t.TempDir()
 	store, err := storage.New(dir, 0)
 	if err != nil {
