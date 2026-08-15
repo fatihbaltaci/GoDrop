@@ -74,8 +74,16 @@ jobs:
       # binaries in the release: a short commit and the date it was built.
       - id: build_meta
         run: |
-          echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
-          echo "date=$(git show -s --format=%cI HEAD)" >> "$GITHUB_OUTPUT"
+          # UTC, and without the leading v, so that the image reports exactly
+          # what the archives do. Two spellings of the same release is a
+          # question nobody should have to answer.
+          {
+            echo "commit=$(git rev-parse --short HEAD)"
+            echo "date=$(git show -s --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ HEAD)"
+            echo "version=${GITHUB_REF_NAME#v}"
+          } >> "$GITHUB_OUTPUT"
+        env:
+          TZ: UTC
 
       - id: meta
         uses: docker/metadata-action@v6
@@ -100,7 +108,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            VERSION=${{ github.ref_name }}
+            VERSION=${{ steps.build_meta.outputs.version }}
             COMMIT=${{ steps.build_meta.outputs.commit }}
             DATE=${{ steps.build_meta.outputs.date }}
             POSTHOG_KEY=${{ env.POSTHOG_KEY }}
