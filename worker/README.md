@@ -26,11 +26,16 @@ pick this repository, then fill in:
 | Deploy command | `npx wrangler deploy` (the default) |
 
 Leave the rest alone. `wrangler.jsonc` in the repository root supplies the
-name, the entry point and the asset directory, so there is nothing to configure
-in *Advanced settings*.
+name, the entry point, the asset directory and the domain, so there is nothing
+to configure in *Advanced settings* and nothing to click afterwards.
 
-After the first deploy, attach the domain: **Workers & Pages → godrop →
-Settings → Domains & Routes → Add → Custom domain → `godrop.sh`**.
+The domain is attached by the deploy itself, which needs `godrop.sh` to be a
+zone in the same Cloudflare account. If it is not, the deploy fails with
+"Could not find zone" and the fix is to add the domain to the account first.
+
+workers.dev and preview URLs are switched off on purpose. `/api/check` is
+unauthenticated and the rate limiting rule below is a WAF rule on the
+`godrop.sh` zone, which those hostnames would go around.
 
 Check it end to end:
 
