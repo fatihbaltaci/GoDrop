@@ -1,9 +1,9 @@
-# Cloudflare Pages headers.
+# Response headers for the static assets. Cloudflare applies every matching
+# rule, so a header set here must not also be set in the catch-all below.
 
 /install.sh
   Content-Type: text/x-shellscript; charset=utf-8
   Cache-Control: public, max-age=300
-  X-Content-Type-Options: nosniff
 
 /*
   X-Content-Type-Options: nosniff
