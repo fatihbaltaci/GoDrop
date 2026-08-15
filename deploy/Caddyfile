@@ -1,4 +1,24 @@
 # Replace files.example.com with your own host name.
+{
+	servers {
+		# GoDrop leaves request timeouts off by default, because cutting a
+		# legitimate slow upload in half is worse than the connection it holds.
+		# The proxy is the right place to draw the line: without one, a client
+		# that opens a request and then trickles can hold a connection open for
+		# as long as it likes.
+		#
+		# Raise read_body if you accept very large files over slow links: 10m
+		# is about 1.4 Mbit/s for a 100MB upload. There is deliberately no
+		# write timeout, because it would apply to the whole response and would
+		# cut off large downloads.
+		timeouts {
+			read_header 10s
+			read_body 10m
+			idle 2m
+		}
+	}
+}
+
 files.example.com {
 	reverse_proxy godrop:8080
 

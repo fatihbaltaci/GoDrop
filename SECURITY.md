@@ -39,10 +39,13 @@ Being explicit about this is more useful than a longer list of features.
   disk encryption if that matters.
 - **There is no multi-tenancy.** Every token can delete every file.
 - **Slow clients are the reverse proxy's problem.** `GODROP_READ_TIMEOUT` and
-  `GODROP_WRITE_TIMEOUT` default to none, because a legitimate 2GB upload over
-  a poor connection must not be cut off mid-way. A server exposed directly to
-  the internet should set them, or sit behind Caddy or nginx, which is what the
-  examples in `deploy/` do.
+  `GODROP_WRITE_TIMEOUT` default to none, because cutting a legitimate 2GB
+  upload in half is worse than the connection it holds. Go's own timeouts apply
+  to a whole request, so any value large enough for the slowest acceptable
+  upload is too large to stop a client that trickles. A proxy can draw the line
+  per read instead, which is what the examples in `deploy/` do —
+  `client_body_timeout` and `send_timeout` for nginx, a `timeouts` block for
+  Caddy. Set the GoDrop variables yourself if you expose it directly.
 
 ## Deliberate decisions
 
