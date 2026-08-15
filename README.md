@@ -4,17 +4,12 @@
 
 <p align="center">
   <strong>Upload a file, get a hard-to-guess URL.</strong><br>
-  One binary, no database, files on disk.
+  Written in Go: one binary, no database, files on disk.
 </p>
 
 [![CI](https://github.com/fatihbaltaci/GoDrop/actions/workflows/ci.yml/badge.svg)](https://github.com/fatihbaltaci/GoDrop/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/fatihbaltaci/GoDrop.svg)](https://pkg.go.dev/github.com/fatihbaltaci/GoDrop)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-
-<p align="center"><sub>
-  The gopher is after the Go mascot by
-  <a href="https://reneefrench.blogspot.com/">Renée French</a>, CC BY 3.0.
-</sub></p>
 
 ```bash
 curl -X POST \
@@ -935,11 +930,28 @@ found: a file name that produced `..` inside a URL segment.
 ---
 
 <p align="center">
-  <sub>Sponsored by</sub><br/><br/>
+  <sub>Sponsored by</sub>
+</p>
+
+<p align="center">
+  <a href="https://getanteon.com/">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/getanteon/anteon/master/assets/anteon-logo-db.svg">
+      <img src="https://raw.githubusercontent.com/getanteon/anteon/master/assets/anteon-logo-wb.svg" alt="Anteon" height="36">
+    </picture>
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
   <a href="https://gurubase.io/">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="https://gurubase.io/media/gurubase-dark-logo.png">
       <img src="https://gurubase.io/media/gurubase-light-logo.png" alt="Gurubase" height="34">
     </picture>
   </a>
+</p>
+
+<p align="center">
+  <sub>
+    The gopher is after the Go mascot by
+    <a href="https://reneefrench.blogspot.com/">Renée French</a>, CC BY 3.0.
+  </sub>
 </p>
