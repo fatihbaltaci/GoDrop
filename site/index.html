@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GoDrop — upload a file, get a URL</title>
+<meta name="description" content="A tiny self-hosted file host in Go. Upload a file with a token, get back a public URL nobody can guess.">
+<meta property="og:title" content="GoDrop">
+<meta property="og:description" content="Upload a file, get a hard-to-guess URL. One binary, no database.">
+<meta property="og:url" content="https://godrop.sh">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fbfbfa;
+    --fg: #1a1a19;
+    --muted: #6b6b66;
+    --line: #e4e4e0;
+    --accent: #0a7d55;
+    --code-bg: #f2f2ef;
+    --card: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121211;
+      --fg: #eceae5;
+      --muted: #9b9b93;
+      --line: #2a2a27;
+      --accent: #4ade9f;
+      --code-bg: #1c1c1a;
+      --card: #191917;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.6 ui-sans-serif, -apple-system, "Segoe UI", Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 46rem; margin: 0 auto; padding: 4rem 1.5rem 6rem; }
+  header { margin-bottom: 3rem; }
+  h1 {
+    font-size: clamp(2.2rem, 7vw, 3.2rem);
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    margin: 0 0 .6rem;
+  }
+  .tagline { font-size: 1.15rem; color: var(--muted); margin: 0; }
+  h2 {
+    font-size: .8rem;
+    text-transform: uppercase;
+    letter-spacing: .1em;
+    color: var(--muted);
+    margin: 3rem 0 .9rem;
+    font-weight: 600;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+    overflow-x: auto;
+    margin: 0 0 1rem;
+    font: 13.5px/1.7 ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  }
+  code { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace; }
+  p code, li code {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: .1em .35em;
+    font-size: .9em;
+  }
+  .cmt { color: var(--muted); }
+  .out { color: var(--accent); }
+  ul { padding-left: 1.1rem; margin: 0 0 1rem; }
+  li { margin: .35rem 0; }
+  li strong { font-weight: 600; }
+  a { color: var(--accent); }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+    gap: .8rem;
+    margin-bottom: 1rem;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: .9rem 1rem;
+  }
+  .card b { display: block; font-size: .95rem; margin-bottom: .15rem; }
+  .card span { color: var(--muted); font-size: .88rem; }
+  footer {
+    margin-top: 4rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: .9rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    justify-content: space-between;
+  }
+  .note {
+    border-left: 2px solid var(--line);
+    padding-left: 1rem;
+    color: var(--muted);
+    font-size: .93rem;
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>GoDrop</h1>
+    <p class="tagline">Upload a file, get a hard-to-guess URL. One binary, no database.</p>
+  </header>
+
+  <h2>Install</h2>
+<pre><code>curl -fsSL https://godrop.sh/install.sh | sh</code></pre>
+  <p class="note">
+    The script verifies the release checksum before installing anything, then
+    hands over to <code>godrop init</code>, which writes the configuration,
+    creates your first token and checks that the internet can actually reach
+    your server.
+  </p>
+
+  <h2>Use it</h2>
+<pre><code><span class="cmt"># upload</span>
+curl -X POST -H "Authorization: Bearer $GODROP_TOKEN" \
+  -F "file=@photo.jpg" https://files.example.com/upload
+
+<span class="out">{"url":"https://files.example.com/f/20260815-143022-8f4e…/photo.jpg", "files":[…]}</span>
+
+<span class="cmt"># download — no token needed</span>
+curl -O https://files.example.com/f/20260815-143022-8f4e…/photo.jpg
+
+<span class="cmt"># delete</span>
+curl -X DELETE -H "Authorization: Bearer $GODROP_TOKEN" \
+  https://files.example.com/f/20260815-143022-8f4e…/photo.jpg</code></pre>
+
+  <h2>What it does</h2>
+  <div class="grid">
+    <div class="card"><b>Unguessable URLs</b><span>128 random bits per file. No listing endpoint, by design.</span></div>
+    <div class="card"><b>No database</b><span>Files on disk, identifiers that carry their own location.</span></div>
+    <div class="card"><b>Public downloads</b><span>Uploads and deletes need a token; reading never does.</span></div>
+    <div class="card"><b>Real limits</b><span>Size, quota, retention and rate limits, all configurable.</span></div>
+    <div class="card"><b>Agent-native</b><span>Every command speaks <code>--json</code>; the server serves <code>/llms.txt</code>.</span></div>
+    <div class="card"><b>Diagnosable</b><span><code>godrop doctor</code> checks storage, firewall, TLS and reachability.</span></div>
+  </div>
+
+  <h2>For AI agents</h2>
+  <p>
+    Give an agent two values — a base URL and a token — and it can work out the
+    rest by itself:
+  </p>
+<pre><code>curl https://files.example.com/llms.txt      <span class="cmt"># the whole API in plain text</span>
+curl https://files.example.com/openapi.yaml  <span class="cmt"># machine-readable schema</span></code></pre>
+  <p>
+    There is a ready-made skill file at
+    <a href="https://github.com/fatihbaltaci/GoDrop/blob/main/SKILL.md">SKILL.md</a>.
+  </p>
+
+  <h2>Run it anywhere</h2>
+  <ul>
+    <li><strong>Docker</strong> — <code>docker run -v godrop-data:/data ghcr.io/fatihbaltaci/godrop</code></li>
+    <li><strong>A plain VPS</strong> — one binary and a hardened systemd unit</li>
+    <li><strong>Fly.io, Railway, Render</strong> — ready-made manifests, each with a volume</li>
+  </ul>
+  <p class="note">
+    Not Vercel or Cloudflare Workers: their filesystems are ephemeral, so an
+    uploaded file would disappear on the next deploy. GoDrop keeps files on a
+    real disk, and pretending otherwise would only lose your data.
+  </p>
+
+  <footer>
+    <span>MIT licensed · <a href="https://github.com/fatihbaltaci/GoDrop">github.com/fatihbaltaci/GoDrop</a></span>
+    <span>Sponsored by <a href="https://gurubase.io/">Gurubase</a></span>
+  </footer>
+</main>
+</body>
+</html>
