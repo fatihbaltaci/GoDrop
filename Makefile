@@ -62,6 +62,7 @@ docs: build ## Regenerate the generated documentation
 	sh scripts/readme-cli.sh bin/$(BINARY)
 	cp skills/godrop/SKILL.md internal/cli/skill/SKILL.md
 	@echo "synced the embedded skill from skills/godrop/SKILL.md"
+	python3 scripts/logo.py
 
 .PHONY: snapshot
 snapshot: ## Build every release artefact locally, without publishing

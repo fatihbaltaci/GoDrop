@@ -1,10 +1,20 @@
-# GoDrop
+<p align="center">
+  <img src="site/logo-lockup.svg" alt="GoDrop" width="420">
+</p>
 
-**Upload a file, get a hard-to-guess URL.** One binary, no database, files on disk.
+<p align="center">
+  <strong>Upload a file, get a hard-to-guess URL.</strong><br>
+  One binary, no database, files on disk.
+</p>
 
 [![CI](https://github.com/fatihbaltaci/GoDrop/actions/workflows/ci.yml/badge.svg)](https://github.com/fatihbaltaci/GoDrop/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/fatihbaltaci/GoDrop.svg)](https://pkg.go.dev/github.com/fatihbaltaci/GoDrop)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+<p align="center"><sub>
+  The gopher is after the Go mascot by
+  <a href="https://reneefrench.blogspot.com/">Renée French</a>, CC BY 3.0.
+</sub></p>
 
 ```bash
 curl -X POST \

@@ -8,6 +8,9 @@
 <meta property="og:title" content="GoDrop">
 <meta property="og:description" content="Upload a file, get a hard-to-guess URL. One binary, no database.">
 <meta property="og:url" content="https://godrop.sh">
+<meta property="og:image" content="https://godrop.sh/logo-lockup.svg">
+<link rel="icon" href="logo.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="logo.svg">
 <style>
   :root {
     color-scheme: light dark;
@@ -47,6 +50,7 @@
     margin: 0 0 .6rem;
   }
   .tagline { font-size: 1.15rem; color: var(--muted); margin: 0; }
+  .logo { display: block; margin: 0 0 0.6rem; }
   h2 {
     font-size: .8rem;
     text-transform: uppercase;
@@ -114,6 +118,7 @@
 <body>
 <main>
   <header>
+    <img class="logo" src="logo.svg" width="88" height="88" alt="">
     <h1>GoDrop</h1>
     <p class="tagline">Upload a file, get a hard-to-guess URL. One binary, no database.</p>
   </header>

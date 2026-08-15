@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 566 210" width="566" height="210" role="img" aria-label="GoDrop">
+  <title>GoDrop</title>
+  <!--
+    The letters are drawn rather than set, so the wordmark looks the same
+    everywhere instead of depending on a font being installed.
+    A rounded geometric sans built from arcs of a single weight, to match the
+    mark. Cap height 58 to 150, x-height 78 to 150, descender to 186; the round
+    letters overshoot those lines slightly, as they must to look level.
+  -->
+  <style>
+    /* Navy on a light background, near-white on a dark one. Without this the
+       word disappears on a dark README or a dark browser theme. */
+    .ink { stroke: #17305A }
+    @media (prefers-color-scheme: dark) { .ink { stroke: #EAF6FB } }
+  </style>
+
+  <g fill="none" stroke-width="22" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Go -->
+    <g stroke="#2CB4D8">
+      <path d="M118 104A47 47 0 1 1 98 65"/>
+      <path d="M118 104H92"/>
+      <circle cx="174" cy="114" r="36"/>
+    </g>
+
+    <!-- Drop -->
+    <g class="ink">
+      <path d="M232 58v92"/>
+      <path d="M232 58h16a46 46 0 0 1 0 92h-16"/>
+      <path d="M316 78v72"/>
+      <path d="M316 112a34 34 0 0 1 34-34"/>
+      <circle cx="408" cy="114" r="36"/>
+      <path d="M466 78v108"/>
+      <circle cx="502" cy="114" r="36"/>
+    </g>
+  </g>
+</svg>
