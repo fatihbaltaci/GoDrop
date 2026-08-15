@@ -1,0 +1,41 @@
+# GoDrop behind Caddy, which obtains and renews the TLS certificate for you.
+#
+#   1. Point files.example.com at this server's public IP.
+#   2. Edit deploy/Caddyfile with your host name.
+#   3. Set GODROP_BASE_URL=https://files.example.com in .env
+#   4. docker compose -f deploy/docker-compose.caddy.yml up -d
+#
+# Ports 80 and 443 must be reachable from the internet — that includes your
+# cloud provider's firewall, which `godrop doctor` checks for you.
+services:
+  godrop:
+    image: ghcr.io/fatihbaltaci/godrop:latest
+    restart: unless-stopped
+    env_file: ../.env
+    expose:
+      - "8080"
+    volumes:
+      - godrop-data:/data
+    healthcheck:
+      test: ["CMD", "/godrop", "health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - godrop
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  godrop-data:
+  caddy-data:
+  caddy-config:

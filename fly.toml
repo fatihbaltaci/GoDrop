@@ -1,0 +1,44 @@
+# Fly.io deployment.
+#
+#   fly launch --no-deploy --copy-config
+#   fly volumes create godrop_data --size 10 --region fra
+#   fly secrets set GODROP_TOKENS=$(godrop token create --json | jq -r .token)
+#   fly deploy
+#
+# Uploads live on the volume; without it every restart starts from an empty
+# disk. `godrop doctor` fails loudly if the volume is missing.
+app = "godrop"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  GODROP_DATA_DIR = "/data"
+  GODROP_ADDR = ":8080"
+  GODROP_MAX_FILE_SIZE = "100MB"
+  GODROP_MAX_TOTAL_SIZE = "9GB"   # leave headroom on a 10GB volume
+
+[mounts]
+  source = "godrop_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # A stopped machine cannot serve a download link, and a public URL is
+  # expected to work at any time — so keep at least one machine running.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[http_service.checks]]
+  grace_period = "5s"
+  interval = "30s"
+  method = "GET"
+  timeout = "5s"
+  path = "/readyz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

@@ -1,0 +1,23 @@
+# GoDrop — the smallest thing that works.
+#
+#   1. cp .env.example .env   (then set GODROP_TOKENS)
+#   2. docker compose up -d
+#   3. docker compose exec godrop /godrop doctor
+services:
+  godrop:
+    image: ghcr.io/fatihbaltaci/godrop:latest
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8080:8080"
+    volumes:
+      - godrop-data:/data
+    healthcheck:
+      test: ["CMD", "/godrop", "health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  godrop-data:

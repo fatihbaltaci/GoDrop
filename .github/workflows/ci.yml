@@ -1,0 +1,137 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.26.x"
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+
+      - name: Verify formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test with the race detector
+        run: go test -race -count=1 ./...
+
+      # The coverage gate is what keeps the promise honest: every statement in
+      # internal/ is executed by a test. cmd/godrop is a three-line wiring shim
+      # around os.Exit and is excluded deliberately.
+      - name: Coverage
+        run: |
+          go test -covermode=atomic -coverprofile=coverage.out ./internal/...
+          go tool cover -func=coverage.out | tail -n 1
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {print $3}' | tr -d '%')
+          echo "total coverage: ${total}%"
+          if [ "$(echo "$total < 100" | bc -l)" -eq 1 ]; then
+            echo "::error::coverage dropped to ${total}%, which must stay at 100%"
+            go tool cover -func=coverage.out | grep -v "100.0%"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+
+  fuzz:
+    name: Fuzz
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+
+      # Short runs on every change; the seed corpus in testdata/ turns anything
+      # ever found into a permanent regression test.
+      - name: Fuzz the sanitisers
+        run: |
+          for target in FuzzSanitizeExt FuzzSanitizeSlug FuzzSplitStoredName; do
+            echo "── $target"
+            go test ./internal/server/ -run "^$" -fuzz "^${target}$" -fuzztime 30s
+          done
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: latest
+
+      - name: Shellcheck the installer
+        run: shellcheck install.sh
+
+  docker:
+    name: Docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: godrop:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # A container that starts, serves an upload and hands the file back is the
+      # only proof that the image itself is correct.
+      - name: Smoke test the image
+        run: |
+          set -euo pipefail
+          docker run -d --name godrop -p 8080:8080 \
+            -e GODROP_TOKENS=ci-token-with-enough-entropy \
+            -v godrop-data:/data godrop:ci
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8080/healthz
+          echo "hello from ci" > sample.txt
+          url=$(curl -fsS -X POST -H "Authorization: Bearer ci-token-with-enough-entropy" \
+                 -F "file=@sample.txt" http://127.0.0.1:8080/upload |
+                 sed -n 's/.*"url":"\([^"]*\)".*/\1/p')
+          echo "uploaded to $url"
+          test "$(curl -fsS "$url")" = "hello from ci"
+          code=$(curl -fsS -o /dev/null -w '%{http_code}' -X DELETE \
+                 -H "Authorization: Bearer ci-token-with-enough-entropy" "$url")
+          test "$code" = "204"
+          docker exec godrop /godrop health
+          docker logs godrop
+          docker rm -f godrop

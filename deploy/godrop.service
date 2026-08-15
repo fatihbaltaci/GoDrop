@@ -1,0 +1,39 @@
+# GoDrop as a systemd service.
+#
+#   sudo useradd --system --home /var/lib/godrop --shell /usr/sbin/nologin godrop
+#   sudo mkdir -p /var/lib/godrop && sudo chown godrop:godrop /var/lib/godrop
+#   sudo install -m 600 -o godrop -g godrop .env /var/lib/godrop/godrop.env
+#   sudo cp deploy/godrop.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now godrop
+[Unit]
+Description=GoDrop file host
+Documentation=https://godrop.sh
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=godrop
+Group=godrop
+EnvironmentFile=/var/lib/godrop/godrop.env
+ExecStart=/usr/local/bin/godrop serve
+Restart=on-failure
+RestartSec=2
+
+# GoDrop only needs to read its binary and write its data directory.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+ReadWritePaths=/var/lib/godrop
+
+[Install]
+WantedBy=multi-user.target

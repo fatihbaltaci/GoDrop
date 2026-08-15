@@ -1,0 +1,33 @@
+# Render blueprint.
+#
+#   1. Push this repository to GitHub.
+#   2. Render → New → Blueprint → pick the repo.
+#   3. Set GODROP_TOKENS and GODROP_BASE_URL in the dashboard.
+#
+# The disk is what makes uploads persistent. It requires a paid instance type
+# and binds the service to a single instance — GoDrop stores files on local
+# disk, so it does not scale horizontally by design.
+services:
+  - type: web
+    name: godrop
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /healthz
+    envVars:
+      - key: GODROP_DATA_DIR
+        value: /data
+      - key: GODROP_ADDR
+        value: :8080
+      - key: GODROP_MAX_FILE_SIZE
+        value: 100MB
+      - key: GODROP_MAX_TOTAL_SIZE
+        value: 9GB
+      - key: GODROP_TOKENS
+        sync: false          # set this in the dashboard
+      - key: GODROP_BASE_URL
+        sync: false          # e.g. https://godrop.onrender.com
+    disk:
+      name: godrop-data
+      mountPath: /data
+      sizeGB: 10
