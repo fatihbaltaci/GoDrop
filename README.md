@@ -627,7 +627,11 @@ running keeps serving from the binary it started with, and restarts into the
 new one.
 
 Installations owned by something else are refused rather than overwritten. Use
-apt, dnf or brew for those, and pull a new image for a container.
+apt, dnf or brew for those.
+
+When setup configured a service on this machine, that service is moved onto the
+new release too: a compose deployment is pulled and recreated, a systemd one is
+restarted. The configuration, the token and the uploads are untouched.
 
 Usage:
   godrop update [flags]
@@ -826,7 +830,7 @@ GODROP_TOKEN=gd_... godrop doctor --url https://files.example.com
 
 ```bash
 godrop update --check     # is there a newer release?
-godrop update             # install it
+godrop update             # install it, and move the service onto it
 ```
 
 Nothing is replaced until the download has been checked against the published
@@ -834,6 +838,18 @@ Nothing is replaced until the download has been checked against the published
 version, so a failed update leaves the working installation exactly as it was.
 The swap itself is a rename, which is atomic: a running server keeps serving
 from the binary it started with and picks up the new one when it restarts.
+
+The service is moved on too, because the binary you update is the command line
+and the service may be a container running a different copy. A compose
+deployment is pulled and recreated, which replaces the container and keeps the
+named volume, so the uploads and the token survive it; a systemd deployment is
+restarted. Re-running the installer, or `godrop init`, over an installation
+that already exists does exactly the same thing rather than asking the
+questions again:
+
+```bash
+curl -fsSL https://godrop.sh/install.sh | sh   # again: this is an update
+```
 
 An installation that belongs to a package manager is refused rather than
 overwritten, with the command that does the job instead:

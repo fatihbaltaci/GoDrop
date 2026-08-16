@@ -20,7 +20,23 @@ import (
 // with stubTooling.
 func TestMain(m *testing.M) {
 	listenOn = func(string) (io.Closer, error) { return io.NopCloser(strings.NewReader("")), nil }
-	os.Exit(m.Run())
+
+	// A home of this run's own, for the same reason. Setup, update and
+	// uninstall all work out where they live from the home directory, and a
+	// test that reached the real one would be operating on the installation
+	// belonging to whoever is running the suite.
+	home, err := os.MkdirTemp("", "godrop-cli-test-home")
+	if err != nil {
+		panic(err)
+	}
+	for _, key := range []string{"HOME", "APPDATA", "USERPROFILE", "XDG_DATA_HOME"} {
+		if err := os.Setenv(key, home); err != nil {
+			panic(err)
+		}
+	}
+	code := m.Run()
+	_ = os.RemoveAll(home)
+	os.Exit(code)
 }
 
 // stubTooling replaces the three seams the checks use, so a test can describe

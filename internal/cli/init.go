@@ -64,9 +64,22 @@ are skipped automatically when there is no terminal.`,
 			// to ask about sudo, so it outlives the questions themselves.
 			prompter := wizard.Prompter(&flagPrompter{out: out})
 			interactiveRun := !nonInteractive && interactive()
+			if interactiveRun {
+				printBanner(out, build)
+			}
+
+			// Running setup again over an installation that already exists is
+			// an update, not a new setup: asking the questions a second time
+			// ends in a second token and a refusal to overwrite the first
+			// answers. --force is how you start over deliberately.
+			if !force && installedAt(outDir) {
+				out.success("GoDrop is already set up in %s", outDir)
+				out.skip("to configure it from scratch instead: godrop init --force")
+				return upgrade(cmd.Context(), out, build, outDir)
+			}
+
 			switch {
 			case interactiveRun:
-				printBanner(out, build)
 				collected, err := askInteractively(nil, nil, answers)
 				if err != nil {
 					if errors.Is(err, errCancelled) {

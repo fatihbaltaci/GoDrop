@@ -59,6 +59,7 @@ copy is stale:
 | `internal/cli/skill/SKILL.md` | `skills/godrop/SKILL.md` | `internal/cli/skill_test.go` |
 | `site/logo-lockup.svg` | `site/logo.svg` + `site/wordmark.svg` | `scripts/logo.py` |
 | `site/demo.svg` | the session in `scripts/demo.py` | `scripts/demo.py` |
+| `internal/wizard/assets/sample.png` | `site/logo-lockup.svg`, rendered by Chrome | `internal/wizard/sample_test.go` compares a stamp of the source |
 
 ## Architecture
 

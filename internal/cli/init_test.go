@@ -156,6 +156,11 @@ func TestInitRefusesToOverwriteWithoutForce(t *testing.T) {
 	if code, _, _ := run(t, testBuild(), initArgs(outDir, dataDir)...); code != 0 {
 		t.Fatal("first run should succeed")
 	}
+	// A configuration this program did not write is not an installation to
+	// update, so the wizard runs and then refuses to clobber the file.
+	if err := os.WriteFile(filepath.Join(outDir, ".env"), []byte("GODROP_TOKENS=someone-elses\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	code, _, stderr := run(t, testBuild(), initArgs(outDir, t.TempDir())...)
 	if code == 0 {
 		t.Error("a second run should refuse to clobber the configuration")

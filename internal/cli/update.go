@@ -3,11 +3,14 @@ package cli
 import (
 	"context"
 	"errors"
+	"os"
+	"runtime"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/fatihbaltaci/GoDrop/internal/updater"
+	"github.com/fatihbaltaci/GoDrop/internal/wizard"
 )
 
 // The update command reaches out to GitHub and rewrites a file on disk, which
@@ -36,7 +39,11 @@ running keeps serving from the binary it started with, and restarts into the
 new one.
 
 Installations owned by something else are refused rather than overwritten. Use
-apt, dnf or brew for those, and pull a new image for a container.`,
+apt, dnf or brew for those.
+
+When setup configured a service on this machine, that service is moved onto the
+new release too: a compose deployment is pulled and recreated, a systemd one is
+restarted. The configuration, the token and the uploads are untouched.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Minute)
@@ -77,12 +84,23 @@ apt, dnf or brew for those, and pull a new image for a container.`,
 			}
 			if res.UpToDate {
 				out.success("already on %s, the latest release", build.Version)
+			} else {
+				out.success("updated %s to %s", build.Version, res.To)
+				out.printf("\n  %s\n", res.Path)
+			}
+
+			// This binary is the command line; when the service runs from a
+			// container it is a different copy of GoDrop entirely, and saying
+			// "updated" while it still serves the old release is a lie.
+			dir := wizard.ConfigDir(runtime.GOOS, os.Getenv, os.Geteuid() == 0)
+			if !installedAt(dir) {
+				if !res.UpToDate {
+					out.hint("restart the service to run it: systemctl restart godrop")
+				}
 				return nil
 			}
-			out.success("updated %s to %s", build.Version, res.To)
-			out.printf("\n  %s\n", res.Path)
-			out.hint("restart the service to run it: systemctl restart godrop")
-			return nil
+			out.heading("The service")
+			return upgradeService(ctx, out, dir, deploymentAt(dir))
 		},
 	}
 	cmd.Flags().BoolVar(&check, "check", false, "report whether a newer release exists, without installing it")

@@ -64,6 +64,7 @@ docs: build ## Regenerate the generated documentation
 	@echo "synced the embedded skill from skills/godrop/SKILL.md"
 	python3 scripts/logo.py
 	python3 scripts/demo.py
+	python3 scripts/sample.py
 
 .PHONY: snapshot
 snapshot: ## Build every release artefact locally, without publishing
