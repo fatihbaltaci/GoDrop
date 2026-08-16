@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -52,7 +53,7 @@ are skipped automatically when there is no terminal.`,
 			}
 
 			if outDir == "" {
-				outDir = wizard.ConfigDir(os.Getenv, os.Geteuid() == 0)
+				outDir = wizard.ConfigDir(runtime.GOOS, os.Getenv, os.Geteuid() == 0)
 			}
 
 			// The prompter is still used for the checks below, which may have
@@ -62,7 +63,7 @@ are skipped automatically when there is no terminal.`,
 			switch {
 			case interactiveRun:
 				printBanner(out, build)
-				collected, err := askInteractively(answers)
+				collected, err := askInteractively(nil, nil, answers)
 				if err != nil {
 					if errors.Is(err, errCancelled) {
 						out.printf("\n  Cancelled. Nothing was written.\n")
@@ -322,12 +323,11 @@ func createToken(a wizard.Answers) (string, error) {
 	return plain, nil
 }
 
-// askInteractively runs the whole wizard as one form. It is a variable so the
-// tests can drive the real form with scripted keystrokes instead of a
-// terminal.
-var askInteractively = func(a wizard.Answers) (wizard.Answers, error) {
-	return runForm(nil, nil, a)
-}
+// askInteractively runs the whole wizard as one form, reading the terminal.
+// It is a variable holding runForm itself, so a test drives the real code with
+// scripted keystrokes and nothing ever has to wait on a stdin that will not
+// answer.
+var askInteractively = runForm
 
 // echoAnswers repeats what was chosen, because the form clears itself when it
 // finishes and the answers are what everything below refers to.

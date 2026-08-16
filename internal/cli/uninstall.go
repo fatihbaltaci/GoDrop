@@ -121,7 +121,7 @@ func plannedRemovals(purge bool) []removal {
 		items = append(items, removal{Path: path, What: what})
 	}
 
-	configDir := wizard.ConfigDir(os.Getenv, os.Geteuid() == 0)
+	configDir := wizard.ConfigDir(runtime.GOOS, os.Getenv, os.Geteuid() == 0)
 	add(configDir, "generated configuration")
 	// A docker-compose.yml in the working directory may well be somebody
 	// else's, and deleting a file this program did not write is not something

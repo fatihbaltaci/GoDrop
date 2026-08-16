@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/huh"
+
 	"github.com/fatihbaltaci/GoDrop/internal/telemetry"
 	"github.com/fatihbaltaci/GoDrop/internal/tokens"
 	"github.com/fatihbaltaci/GoDrop/internal/wizard"
@@ -249,7 +251,7 @@ func TestInitRunsTheRealFormsWhenATerminalIsPresent(t *testing.T) {
 	// nine questions, each accepting its default with Enter.
 	originalInteractive, originalAsk := interactive, askInteractively
 	interactive = func() bool { return true }
-	askInteractively = func(a wizard.Answers) (wizard.Answers, error) {
+	askInteractively = func(_ io.Reader, _ io.Writer, a wizard.Answers) (wizard.Answers, error) {
 		return runForm(repeat('\r'), io.Discard, a)
 	}
 	t.Cleanup(func() { interactive, askInteractively = originalInteractive, originalAsk })
@@ -271,7 +273,7 @@ func TestInitRunsTheRealFormsWhenATerminalIsPresent(t *testing.T) {
 func TestInitReportsCancellation(t *testing.T) {
 	originalInteractive, originalAsk := interactive, askInteractively
 	interactive = func() bool { return true }
-	askInteractively = func(a wizard.Answers) (wizard.Answers, error) {
+	askInteractively = func(_ io.Reader, _ io.Writer, a wizard.Answers) (wizard.Answers, error) {
 		// Ctrl+C on the first question.
 		return runForm(repeat('\x03'), io.Discard, a)
 	}
@@ -473,8 +475,8 @@ func TestVerifySkipsTheExternalCheckOnRequest(t *testing.T) {
 
 func TestUninstallListsWhatItWouldRemove(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-	config := filepath.Join(dir, ".godrop")
+	setHome(t, dir)
+	config := configDirForTest(t)
 	if err := os.MkdirAll(config, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -490,7 +492,7 @@ func TestUninstallListsWhatItWouldRemove(t *testing.T) {
 
 func TestUninstallLeavesFilesAloneWithoutPurge(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("HOME", dir)
+	setHome(t, dir)
 	data := filepath.Join(dir, "uploads")
 	if err := os.MkdirAll(data, 0o700); err != nil {
 		t.Fatal(err)
@@ -513,8 +515,8 @@ func TestUninstallLeavesFilesAloneWithoutPurge(t *testing.T) {
 
 func TestUninstallRemovesWhatItListed(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-	config := filepath.Join(dir, ".godrop")
+	setHome(t, dir)
+	config := configDirForTest(t)
 	if err := os.MkdirAll(config, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -536,7 +538,7 @@ func TestUninstallRemovesWhatItListed(t *testing.T) {
 
 func TestUninstallRefusesAPackagedInstallation(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("HOME", dir)
+	setHome(t, dir)
 	original := osExecutable
 	osExecutable = func() (string, error) { return filepath.Join(dir, "godrop"), nil }
 	t.Cleanup(func() { osExecutable = original })
@@ -556,7 +558,7 @@ func TestUninstallRefusesAPackagedInstallation(t *testing.T) {
 
 func TestUninstallWithNothingToRemove(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("HOME", dir)
+	setHome(t, dir)
 	original := osExecutable
 	osExecutable = func() (string, error) { return "", errors.New("no path") }
 	t.Cleanup(func() { osExecutable = original })
@@ -705,8 +707,8 @@ func TestAnyLimitFlagSet(t *testing.T) {
 
 func TestUninstallAsksBeforeRemovingAnything(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-	config := filepath.Join(dir, ".godrop")
+	setHome(t, dir)
+	config := configDirForTest(t)
 	if err := os.MkdirAll(config, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -729,8 +731,8 @@ func TestUninstallAsksBeforeRemovingAnything(t *testing.T) {
 
 func TestUninstallPropagatesACancelledConfirmation(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-	if err := os.MkdirAll(filepath.Join(dir, ".godrop"), 0o700); err != nil {
+	setHome(t, dir)
+	if err := os.MkdirAll(configDirForTest(t), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	original := newInteractivePrompter
@@ -745,8 +747,8 @@ func TestUninstallPropagatesACancelledConfirmation(t *testing.T) {
 func TestUninstallReportsWhatItCouldNotRemove(t *testing.T) {
 	requireStrictPermissions(t)
 	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-	config := filepath.Join(dir, ".godrop")
+	setHome(t, dir)
+	config := configDirForTest(t)
 	if err := os.MkdirAll(filepath.Join(config, "inner"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -767,17 +769,20 @@ func TestUninstallReportsWhatItCouldNotRemove(t *testing.T) {
 
 func TestInitWritesIntoItsOwnDirectoryByDefault(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	code, _, stderr := run(t, testBuild(), "init", "--non-interactive",
 		"--data-dir", t.TempDir(), "--no-external-check", "--deployment", "env")
 	if code != 0 {
 		t.Fatalf("exit = %d: %s", code, stderr)
 	}
-	// Not the working directory: setup keeps its files together, under the
-	// home directory, rather than leaving them wherever it was run.
-	if _, err := os.Stat(filepath.Join(home, ".godrop", ".env")); err != nil {
-		t.Errorf("the configuration should land in ~/.godrop: %v", err)
+	// Not the working directory: setup keeps its files together, in the place
+	// this platform keeps a program's configuration, rather than leaving them
+	// wherever it happened to be run.
+	config := configDirForTest(t)
+	if _, err := os.Stat(filepath.Join(config, ".env")); err != nil {
+		t.Errorf("the configuration should land in %s: %v", config, err)
 	}
+	_ = home
 }
 
 func TestInitStopsWhenTheChecksFail(t *testing.T) {
@@ -819,14 +824,6 @@ func TestWaitForHealthIgnoresAnImpossibleURL(t *testing.T) {
 	waitForHealth(t.Context(), "://not a url")
 }
 
-func TestTheInteractiveFormReadsTheTerminal(t *testing.T) {
-	// The real entry point, with no terminal behind it: it has to come back
-	// rather than block the setup for ever.
-	if _, err := askInteractively(wizard.Defaults()); err == nil {
-		t.Log("the form completed without a terminal, which is fine too")
-	}
-}
-
 func TestTheHuhPrompterReportsCancellation(t *testing.T) {
 	p := newHuhPrompter(&output{w: io.Discard})
 	p.in, p.w = repeat('\x03'), io.Discard
@@ -840,7 +837,7 @@ func TestInitReportsAFormFailure(t *testing.T) {
 	// nothing useful to add to "the terminal went away".
 	originalInteractive, originalAsk := interactive, askInteractively
 	interactive = func() bool { return true }
-	askInteractively = func(wizard.Answers) (wizard.Answers, error) {
+	askInteractively = func(io.Reader, io.Writer, wizard.Answers) (wizard.Answers, error) {
 		return wizard.Answers{}, errors.New("the terminal went away")
 	}
 	t.Cleanup(func() { interactive, askInteractively = originalInteractive, originalAsk })
@@ -856,7 +853,7 @@ func TestInitReportsAFormFailure(t *testing.T) {
 
 func TestPlannedRemovalsListsEachPathOnce(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("HOME", dir)
+	setHome(t, dir)
 	t.Setenv("GODROP_DATA_DIR", "") // nothing configured: nothing to add
 	config := filepath.Join(dir, ".godrop")
 	if err := os.MkdirAll(config, 0o700); err != nil {
@@ -883,7 +880,7 @@ func TestPlannedRemovalsListsEachPathOnce(t *testing.T) {
 
 func TestUninstallLeavesSomebodyElsesComposeFileAlone(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	dir := t.TempDir()
 	original, err := os.Getwd()
 	if err != nil {
@@ -914,4 +911,40 @@ func TestUninstallLeavesSomebodyElsesComposeFileAlone(t *testing.T) {
 	if _, err := os.Stat(ours); !os.IsNotExist(err) {
 		t.Errorf("the generated .env should be gone: %v", err)
 	}
+}
+
+func TestTheFormReportsAFailingTerminal(t *testing.T) {
+	// A terminal that cannot be written to is a failure to report, not a
+	// cancellation to treat as "the user changed their mind".
+	original := formRun
+	formRun = func(*huh.Form) error { return errors.New("the terminal went away") }
+	t.Cleanup(func() { formRun = original })
+
+	_, err := runForm(repeat('\r'), io.Discard, wizard.Defaults())
+	if err == nil {
+		t.Fatal("a broken terminal should be reported")
+	}
+	if errors.Is(err, errCancelled) {
+		t.Errorf("err = %v, want the failure rather than a cancellation", err)
+	}
+}
+
+// configDirForTest is where this platform keeps the generated configuration,
+// asked of the code under test rather than assumed.
+func configDirForTest(t *testing.T) string {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		// As root the configuration lives in /etc, and a test has no business
+		// creating or removing that.
+		t.Skip("this test writes to the config directory, which is /etc as root")
+	}
+	return wizard.ConfigDir(runtime.GOOS, os.Getenv, false)
+}
+
+// setHome points the home directory at dir, whatever the platform calls it.
+func setHome(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	t.Setenv("APPDATA", dir)
+	t.Setenv("USERPROFILE", dir)
 }

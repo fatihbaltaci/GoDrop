@@ -152,11 +152,14 @@ func DefaultDataDir(goos string, env func(string) string, root bool) string {
 	// Offering a directory the person running setup cannot create is how a
 	// wizard gets all the way to the end and then fails on a mkdir. Without
 	// root, keep the data where they can already write.
+	//
+	// path.Join, not filepath.Join: these are the paths of the machine being
+	// set up, which is not always the machine generating them.
 	if base := env("XDG_DATA_HOME"); base != "" {
-		return filepath.Join(base, "godrop")
+		return path.Join(base, "godrop")
 	}
 	if home := env("HOME"); home != "" {
-		return filepath.Join(home, ".local", "share", "godrop")
+		return path.Join(home, ".local", "share", "godrop")
 	}
 	return "/var/lib/godrop"
 }
@@ -165,15 +168,26 @@ func DefaultDataDir(goos string, env func(string) string, root bool) string {
 // in it and, depending on the answers, a compose file or a unit; dropping
 // those into whatever directory someone happened to be standing in is how a
 // home directory fills up with other programs' leftovers.
-func ConfigDir(env func(string) string, root bool) string {
+func ConfigDir(goos string, env func(string) string, root bool) string {
+	if goos == "windows" {
+		// Windows has no HOME; the per-user place for a program's settings is
+		// APPDATA, and ProgramData is the machine-wide one.
+		if base := env("APPDATA"); base != "" {
+			return filepath.Join(base, "GoDrop")
+		}
+		if home := env("USERPROFILE"); home != "" {
+			return filepath.Join(home, ".godrop")
+		}
+		if base := env("ProgramData"); base != "" {
+			return filepath.Join(base, "GoDrop")
+		}
+		return "."
+	}
 	if root {
 		return "/etc/godrop"
 	}
 	if home := env("HOME"); home != "" {
-		return filepath.Join(home, ".godrop")
-	}
-	if base := env("ProgramData"); base != "" {
-		return filepath.Join(base, "GoDrop")
+		return path.Join(home, ".godrop")
 	}
 	return "."
 }

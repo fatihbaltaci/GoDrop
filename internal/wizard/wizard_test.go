@@ -1135,7 +1135,8 @@ func TestNextStepsLeaveOutWhatSetupAlreadyDid(t *testing.T) {
 
 func TestConfigDir(t *testing.T) {
 	t.Parallel()
-	if got := ConfigDir(func(string) string { return "" }, true); got != "/etc/godrop" {
+	none := func(string) string { return "" }
+	if got := ConfigDir("linux", none, true); got != "/etc/godrop" {
 		t.Errorf("root config dir = %q", got)
 	}
 	home := func(key string) string {
@@ -1144,20 +1145,47 @@ func TestConfigDir(t *testing.T) {
 		}
 		return ""
 	}
-	if got := ConfigDir(home, false); got != filepath.Join("/home/ubuntu", ".godrop") {
+	if got := ConfigDir("linux", home, false); got != "/home/ubuntu/.godrop" {
 		t.Errorf("config dir = %q, want it under the home directory", got)
 	}
-	windows := func(key string) string {
+	if got := ConfigDir("linux", none, false); got != "." {
+		t.Errorf("config dir = %q, want the working directory as a last resort", got)
+	}
+
+	// Windows has no HOME: settings live in APPDATA, with USERPROFILE and
+	// then the machine-wide ProgramData as fallbacks.
+	appdata := func(key string) string {
+		switch key {
+		case "APPDATA":
+			return `C:\Users\fatih\AppData\Roaming`
+		case "USERPROFILE":
+			return `C:\Users\fatih`
+		}
+		return ""
+	}
+	if got := ConfigDir("windows", appdata, false); got != filepath.Join(`C:\Users\fatih\AppData\Roaming`, "GoDrop") {
+		t.Errorf("windows config dir = %q", got)
+	}
+	profile := func(key string) string {
+		if key == "USERPROFILE" {
+			return `C:\Users\fatih`
+		}
+		return ""
+	}
+	if got := ConfigDir("windows", profile, false); got != filepath.Join(`C:\Users\fatih`, ".godrop") {
+		t.Errorf("windows config dir = %q", got)
+	}
+	machine := func(key string) string {
 		if key == "ProgramData" {
 			return `C:\ProgramData`
 		}
 		return ""
 	}
-	if got := ConfigDir(windows, false); got != filepath.Join(`C:\ProgramData`, "GoDrop") {
-		t.Errorf("config dir = %q", got)
+	if got := ConfigDir("windows", machine, false); got != filepath.Join(`C:\ProgramData`, "GoDrop") {
+		t.Errorf("windows config dir = %q", got)
 	}
-	if got := ConfigDir(func(string) string { return "" }, false); got != "." {
-		t.Errorf("config dir = %q, want the working directory as a last resort", got)
+	if got := ConfigDir("windows", none, false); got != "." {
+		t.Errorf("windows config dir = %q", got)
 	}
 }
 

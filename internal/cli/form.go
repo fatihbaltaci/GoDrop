@@ -46,7 +46,7 @@ func runForm(in io.Reader, w io.Writer, a wizard.Answers) (wizard.Answers, error
 	if w != nil {
 		form = form.WithOutput(w)
 	}
-	err := form.Run()
+	err := formRun(form)
 	switch {
 	case errors.Is(err, huh.ErrUserAborted):
 		return state.settled(), errCancelled
@@ -55,6 +55,11 @@ func runForm(in io.Reader, w io.Writer, a wizard.Answers) (wizard.Answers, error
 	}
 	return state.settled(), nil
 }
+
+// formRun is a seam: a terminal that fails mid-form is the one outcome a test
+// cannot arrange, and the answer to it (report it, rather than treat it as a
+// cancellation) is worth proving.
+var formRun = func(f *huh.Form) error { return f.Run() }
 
 // formState holds the answers while the form is running.
 //
