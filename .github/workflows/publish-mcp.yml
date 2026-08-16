@@ -1,11 +1,18 @@
 name: MCP registry
 
 # The registry is how a client finds a server without being told where to look.
-# It is published on its own rather than from the release: the entry it accepts
-# points at an image tag, so the image has to exist first, and a registry that
-# is having a bad afternoon must not be able to fail a release that is already
-# on disk everywhere else.
+#
+# It is published after the release rather than as part of it, and that is the
+# whole design of this file. The entry names an image tag and the registry
+# checks the claim by reading a label off that image, so the image has to exist
+# first; and a registry having a bad afternoon must not be able to fail a
+# release that is already on disk everywhere else. Waiting for the release to
+# finish gets both.
 on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+  # For publishing a release the automatic path missed, and for the first one.
   workflow_dispatch:
     inputs:
       version:
@@ -19,19 +26,42 @@ permissions:
 jobs:
   publish:
     name: Publish server.json
+    # A release that failed has no image to point at, and a release candidate
+    # must not become what a client is offered when it asks for this server.
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'v') &&
+      !contains(github.event.workflow_run.head_branch, '-'))
     runs-on: ubuntu-latest
     steps:
+      # The commit the release was built from, so what is published describes
+      # that release rather than whatever main has moved on to.
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
 
-      - name: Name this release in server.json
+      - name: Work out which release this is
+        id: release
+        env:
+          DISPATCHED: ${{ inputs.version }}
+          RELEASED: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          version="${DISPATCHED:-$RELEASED}"
+          echo "version=${version#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Name that release in server.json
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          OWNER: ${{ github.repository_owner }}
         run: |
           # The committed file names the last release. What is being published
           # is the truth, and the image tag has to follow it. An OCI package
           # carries its version in the identifier and nowhere else; the
           # registry rejects the entry outright for saying it twice.
-          jq --arg v "${{ inputs.version }}" \
+          jq --arg v "$VERSION" --arg owner "$OWNER" \
             '.version = $v
-             | .packages[0].identifier = "ghcr.io/${{ github.repository_owner }}/godrop:" + $v' \
+             | .packages[0].identifier = "ghcr.io/" + $owner + "/godrop:" + $v' \
             server.json > server.next.json
           mv server.next.json server.json
 
@@ -40,9 +70,9 @@ jobs:
           curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" \
             | tar xz mcp-publisher
 
-      # The registry checks the claim by reading the
-      # io.modelcontextprotocol.server.name label off the image, so this fails
-      # loudly if the tag being published is not one that carries it.
+      # The label the image carries has to name the same server as this file,
+      # so a release built without it fails here rather than quietly listing
+      # something nobody can verify.
       - name: Publish
         run: |
           ./mcp-publisher login github-oidc
