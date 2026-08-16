@@ -178,7 +178,10 @@ func containerReport(ctx context.Context, project string) (doctor.Report, error)
 // container knows about its own files; only this machine can say whether the
 // internet reaches the port, and what the newest release is.
 func mergeReports(inside, outside doctor.Report) doctor.Report {
-	fromOutside := map[string]bool{"network": true, "version": true}
+	// The round trip belongs out here too: what matters is that the published
+	// port answers, which is the question a container asking itself cannot
+	// tell apart from its own loopback.
+	fromOutside := map[string]bool{"network": true, "version": true, "end_to_end": true}
 	merged := doctor.Report{Version: outside.Version}
 	for _, c := range inside.Checks {
 		if !fromOutside[c.Group] {
@@ -186,7 +189,7 @@ func mergeReports(inside, outside doctor.Report) doctor.Report {
 		}
 	}
 	for _, c := range outside.Checks {
-		if fromOutside[c.Group] || c.Group == "end_to_end" {
+		if fromOutside[c.Group] {
 			merged.Checks = append(merged.Checks, c)
 		}
 	}

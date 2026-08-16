@@ -60,6 +60,7 @@ func TestDoctorFindsTheContainerInstallation(t *testing.T) {
 			"doctor": `{"ok":true,"checks":[` +
 				`{"group":"config","name":"tokens","status":"pass","detail":"1 token(s) configured"},` +
 				`{"group":"storage","name":"data_dir_perms","status":"pass","detail":"0700"},` +
+				`{"group":"end_to_end","name":"upload","status":"pass","detail":"inside the container"},` +
 				`{"group":"network","name":"listening","status":"pass","detail":"inside the container"}]}`,
 		},
 	}
@@ -80,10 +81,14 @@ func TestDoctorFindsTheContainerInstallation(t *testing.T) {
 	if !strings.Contains(out, "upload") {
 		t.Errorf("the round trip belongs to this side:\n%s", out)
 	}
-	// The container's idea of the network is about its own namespace, so the
-	// answer to that question comes from here.
+	// The container's idea of the network, and of a round trip to itself, is
+	// about its own namespace: both of those questions are answered from here,
+	// and answered once.
 	if strings.Contains(out, "inside the container") {
-		t.Errorf("network checks should come from this machine:\n%s", out)
+		t.Errorf("network and round-trip checks should come from this machine:\n%s", out)
+	}
+	if strings.Count(out, "upload") != 1 {
+		t.Errorf("the round trip should be reported once:\n%s", out)
 	}
 	if strings.Contains(out, "docker compose") {
 		t.Errorf("the diagnosis was run, not printed:\n%s", out)
