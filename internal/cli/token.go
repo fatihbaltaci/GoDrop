@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -65,12 +67,18 @@ func dataDir(cmd *cobra.Command) string {
 type tokenSource struct {
 	dir string   // the data directory holding tokens.json
 	env []string // tokens from GODROP_TOKENS, or from the generated .env
-	// inDocker is the prefix of the command that reaches the token file this
-	// machine cannot, and empty when the file is right here.
-	inDocker string
+	// project is the compose directory when the token file is in a volume,
+	// and empty when the file is one this machine can open for itself.
+	project string
 	// envFile is where the environment tokens were read from, for saying so.
 	envFile string
+	// address is where that installation answers, for the example below a new
+	// token. The shell's own environment says nothing about it.
+	address string
 }
+
+// containerised reports that the token file is inside the service's container.
+func (s tokenSource) containerised() bool { return s.project != "" }
 
 // resolveTokens works out which of those applies.
 func resolveTokens(cmd *cobra.Command) tokenSource {
@@ -87,11 +95,12 @@ func resolveTokens(cmd *cobra.Command) tokenSource {
 	values := readEnvFile(filepath.Join(dir, ".env"))
 	src.env = config.ParseTokens(values["GODROP_TOKENS"])
 	src.envFile = filepath.Join(dir, ".env")
+	src.address = wizard.PublicAddress(answersFromEnv(dir))
 	if deploymentAt(dir) == wizard.DeployCompose {
 		// GODROP_DATA_DIR in that file is a path inside the container, so the
-		// token file is out of reach from here and saying which command
-		// reaches it beats writing a token the service will never read.
-		src.inDocker = "docker compose --project-directory " + dir + " run --rm godrop token "
+		// token file is not one this machine can open. The commands below run
+		// there instead of writing a token the service will never read.
+		src.project = dir
 		return src
 	}
 	if v := strings.TrimSpace(values["GODROP_DATA_DIR"]); v != "" {
@@ -104,6 +113,11 @@ func (s tokenSource) store() (*tokens.Store, error) {
 	return tokens.New(tokens.Path(s.dir), s.env)
 }
 
+// run carries out a token command where the token file actually is.
+func (s tokenSource) run(ctx context.Context, args ...string) ([]byte, error) {
+	return composeRun(ctx, s.project, args...)
+}
+
 func newTokenCreateCmd() *cobra.Command {
 	var name string
 	cmd := &cobra.Command{
@@ -112,42 +126,43 @@ func newTokenCreateCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			src := resolveTokens(cmd)
-			if src.inDocker != "" {
-				return fmt.Errorf(`this installation keeps its token file inside the container, where the service reads it:
-
-  %screate --name %s
-
-A token written here would go to a file nothing is running against`, src.inDocker, tokenName(name))
+			out := newOutput(cmd)
+			if src.containerised() {
+				raw, err := src.run(cmd.Context(), "token", "create", "--name", name, "--json")
+				if err != nil {
+					return err
+				}
+				var created struct {
+					Token string `json:"token"`
+					Name  string `json:"name"`
+				}
+				if err := json.Unmarshal(raw, &created); err != nil {
+					return fmt.Errorf("could not read the answer from the container: %w", err)
+				}
+				if out.json {
+					_, err := out.w.Write(raw)
+					return err
+				}
+				printCreatedToken(out, created.Token, created.Name, src.address)
+				return nil
 			}
 			store, err := src.store()
 			if err != nil {
 				return err
 			}
-			dir := src.dir
 			plain, tok, err := store.Create(name)
 			if err != nil {
 				return err
 			}
-			out := newOutput(cmd)
 			if out.json {
 				return out.emit(map[string]any{
 					"token":   plain,
 					"name":    tok.Name,
 					"created": tok.Created.Format(time.RFC3339),
-					"file":    tokens.Path(dir),
+					"file":    tokens.Path(src.dir),
 				})
 			}
-			out.heading("Token created")
-			out.printf("\n")
-			out.box(plain)
-			out.printf("\n")
-			out.success("name: %s (usable immediately, no restart needed)", tok.Name)
-			out.warn("this is the only time the token is shown; store it now")
-			out.printf("\n  Try it:\n")
-			out.command(fmt.Sprintf(`curl -X POST -H "Authorization: Bearer %s" \`, plain))
-			// The address this instance actually answers on: a printed
-			// example with somebody else's port in it is not an example.
-			out.command(fmt.Sprintf(`  -F "file=@photo.jpg" %s/upload`, localAddress()))
+			printCreatedToken(out, plain, tok.Name, src.address)
 			return nil
 		},
 	}
@@ -155,12 +170,23 @@ A token written here would go to a file nothing is running against`, src.inDocke
 	return cmd
 }
 
-// tokenName is the name to show in an error before the flag has been read.
-func tokenName(name string) string {
-	if name == "" {
-		return "default"
+// printCreatedToken shows a new token once, whichever side of the container
+// it was written on.
+func printCreatedToken(out *output, plain, name, address string) {
+	if address == "" {
+		address = localAddress()
 	}
-	return name
+	out.heading("Token created")
+	out.printf("\n")
+	out.box(plain)
+	out.printf("\n")
+	out.success("name: %s (usable immediately, no restart needed)", name)
+	out.warn("this is the only time the token is shown; store it now")
+	out.printf("\n  Try it:\n")
+	out.command(fmt.Sprintf(`curl -X POST -H "Authorization: Bearer %s" \`, plain))
+	// The address this instance actually answers on: a printed example with
+	// somebody else's port in it is not an example.
+	out.command(fmt.Sprintf(`  -F "file=@photo.jpg" %s/upload`, address))
 }
 
 func newTokenListCmd() *cobra.Command {
@@ -170,12 +196,28 @@ func newTokenListCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			src := resolveTokens(cmd)
+			out := newOutput(cmd)
+			if src.containerised() {
+				raw, err := src.run(cmd.Context(), "token", "list", "--json")
+				if err != nil {
+					return err
+				}
+				if out.json {
+					_, err := out.w.Write(raw)
+					return err
+				}
+				listed, envCount, err := decodeTokenList(raw)
+				if err != nil {
+					return err
+				}
+				printTokenList(out, listed, envCount, src.envFile)
+				return nil
+			}
 			store, err := src.store()
 			if err != nil {
 				return err
 			}
 			list := store.List()
-			out := newOutput(cmd)
 			if out.json {
 				items := make([]map[string]any, 0, len(list))
 				for _, t := range list {
@@ -187,40 +229,68 @@ func newTokenListCmd() *cobra.Command {
 				}
 				return out.emit(map[string]any{"tokens": items, "env_tokens": store.EnvCount()})
 			}
-			if len(list) == 0 && store.EnvCount() == 0 {
-				out.printf("  No tokens yet. Create one with: godrop token create --name default\n")
-				return nil
-			}
-			if len(list) > 0 {
-				out.printf("\n  %-24s %-22s %s\n", "NAME", "CREATED", "LAST USED")
-				for _, t := range list {
-					last := "never"
-					if t.LastUsed != nil {
-						last = humanSince(*t.LastUsed)
-					}
-					out.printf("  %-24s %-22s %s\n", t.Name, humanSince(t.Created), last)
-				}
-			}
-			// The token setup hands over lives in GODROP_TOKENS, because a
-			// compose deployment has no data directory on this machine to
-			// write a file into until the container has created the volume.
-			// It has no name here, which is why it is not a row above.
-			if n := store.EnvCount(); n > 0 {
-				out.printf("\n")
-				where := "your environment"
-				if src.envFile != "" {
-					where = src.envFile
-				}
-				out.skip("%d token(s) come from GODROP_TOKENS in %s, including the one setup gave you", n, where)
-				out.skip("they have no name here; edit that file to change them, and restart the service")
-			}
-			if src.inDocker != "" {
-				out.printf("\n")
-				out.skip("named tokens live in the container:")
-				out.command(src.inDocker + "list")
-			}
+			printTokenList(out, list, store.EnvCount(), src.envFile)
 			return nil
 		},
+	}
+}
+
+// decodeTokenList turns the container's answer back into the same rows a
+// local store would have handed over.
+func decodeTokenList(raw []byte) ([]tokens.Token, int, error) {
+	var doc struct {
+		Tokens []struct {
+			Name     string `json:"name"`
+			Created  string `json:"created"`
+			LastUsed string `json:"last_used"`
+		} `json:"tokens"`
+		EnvTokens int `json:"env_tokens"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, 0, fmt.Errorf("could not read the answer from the container: %w", err)
+	}
+	list := make([]tokens.Token, 0, len(doc.Tokens))
+	for _, t := range doc.Tokens {
+		row := tokens.Token{Name: t.Name}
+		// A timestamp that cannot be read is shown as the zero time rather
+		// than dropping a token from a list somebody is auditing.
+		row.Created, _ = time.Parse(time.RFC3339, t.Created)
+		if used, err := time.Parse(time.RFC3339, t.LastUsed); err == nil {
+			row.LastUsed = &used
+		}
+		list = append(list, row)
+	}
+	return list, doc.EnvTokens, nil
+}
+
+// printTokenList renders the table and says where the nameless ones are.
+func printTokenList(out *output, list []tokens.Token, envCount int, envFile string) {
+	if len(list) == 0 && envCount == 0 {
+		out.printf("  No tokens yet. Create one with: godrop token create --name default\n")
+		return
+	}
+	if len(list) > 0 {
+		out.printf("\n  %-24s %-22s %s\n", "NAME", "CREATED", "LAST USED")
+		for _, t := range list {
+			last := "never"
+			if t.LastUsed != nil {
+				last = humanSince(*t.LastUsed)
+			}
+			out.printf("  %-24s %-22s %s\n", t.Name, humanSince(t.Created), last)
+		}
+	}
+	// The token setup hands over lives in GODROP_TOKENS, because a compose
+	// deployment has no data directory on this machine to write a file into
+	// until the container has made the volume. It has no name, which is why it
+	// is not a row above.
+	if envCount > 0 {
+		out.printf("\n")
+		where := "your environment"
+		if envFile != "" {
+			where = envFile
+		}
+		out.skip("%d token(s) come from GODROP_TOKENS in %s, including the one setup gave you", envCount, where)
+		out.skip("they have no name; edit that file to change them, and restart the service")
 	}
 }
 
@@ -231,10 +301,16 @@ func newTokenRevokeCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			src := resolveTokens(cmd)
-			if src.inDocker != "" {
-				return fmt.Errorf(`this installation keeps its token file inside the container:
-
-  %srevoke %s`, src.inDocker, args[0])
+			out := newOutput(cmd)
+			if src.containerised() {
+				if _, err := src.run(cmd.Context(), "token", "revoke", args[0], "--json"); err != nil {
+					return err
+				}
+				if out.json {
+					return out.emit(map[string]any{"revoked": args[0]})
+				}
+				out.success("%s revoked, effective immediately", args[0])
+				return nil
 			}
 			store, err := src.store()
 			if err != nil {
@@ -246,7 +322,6 @@ func newTokenRevokeCmd() *cobra.Command {
 				}
 				return err
 			}
-			out := newOutput(cmd)
 			if out.json {
 				return out.emit(map[string]any{"revoked": args[0]})
 			}

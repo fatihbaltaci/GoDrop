@@ -400,13 +400,9 @@ so it is not a row in `godrop token list`; the list says where it is instead.
 `tokens.json` is what `godrop token create` adds to afterwards, and the only
 kind that can be revoked without a restart.
 
-On a compose installation that file is inside the container, so that is where
-the command has to run. GoDrop says so rather than writing a token nothing
-reads:
-
-```bash
-docker compose --project-directory ~/.godrop run --rm godrop token create --name claude-code
-```
+On a compose installation that file is inside the container. The commands are
+the same ones: GoDrop runs them where the file is, using the same binary the
+service runs, rather than writing a token nothing would read.
 
 ## Command line
 
@@ -941,8 +937,8 @@ $ godrop doctor
 Run it from any shell on the server: it reads the `.env` setup wrote, so the
 diagnosis is of your installation rather than of an empty environment. A
 compose deployment keeps its files in a volume only the container can see, so
-that one is checked over HTTP and the command for the rest is printed with the
-report.
+the container is asked about those and this machine answers for the network;
+one report comes out of the two.
 
 It exits non-zero when a check fails, so it works as a deployment gate:
 `godrop doctor --json | jq '.checks[] | select(.status=="fail")'`.

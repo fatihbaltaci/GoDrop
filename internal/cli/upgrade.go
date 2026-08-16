@@ -2,8 +2,10 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"runtime"
@@ -215,6 +217,41 @@ func godropCommand() string {
 		return "godrop"
 	}
 	return self
+}
+
+// composeRun carries out a godrop command where the installation actually is:
+// inside its container, where the token file and the uploads are.
+//
+// The program there is this program, so the answer is the one a local
+// installation would give and there is no second implementation to keep
+// honest. The running container is used when there is one, and a throwaway
+// one when the service is stopped, because both can read the volume.
+func composeRun(ctx context.Context, project string, args ...string) ([]byte, error) {
+	if _, err := lookPath("docker"); err != nil {
+		return nil, fmt.Errorf("this installation runs in a container, and docker is not on this machine: %w", err)
+	}
+	argv := []string{"compose", "--project-directory", project}
+	if name, _ := composeContainer(ctx, project); name != "" {
+		// -T: no terminal, so the answer comes back as it was written.
+		argv = append(argv, "exec", "-T", "godrop", "/godrop")
+	} else {
+		argv = append(argv, "run", "--rm", "godrop")
+	}
+	out, err := runOutput(ctx, "docker", append(argv, args...)...)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", strings.Join(args, " "), withStderr(err))
+	}
+	return []byte(out), nil
+}
+
+// withStderr puts what the command said on its error stream into the error,
+// which is where docker explains itself.
+func withStderr(err error) error {
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && len(exit.Stderr) > 0 {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(exit.Stderr)))
+	}
+	return err
 }
 
 // composeContainer asks docker which container is running the service, and

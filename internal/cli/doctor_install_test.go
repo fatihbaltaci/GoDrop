@@ -51,6 +51,19 @@ func TestDoctorFindsTheContainerInstallation(t *testing.T) {
 	}))
 	defer srv.Close()
 
+	// The container answers for its own files; this machine answers for the
+	// network. One report comes out of the two.
+	tooling := &stubTooling{
+		found:     map[string]bool{"docker": true},
+		container: "godrop-godrop-1",
+		says: map[string]string{
+			"doctor": `{"ok":true,"checks":[` +
+				`{"group":"config","name":"tokens","status":"pass","detail":"1 token(s) configured"},` +
+				`{"group":"storage","name":"data_dir_perms","status":"pass","detail":"0700"},` +
+				`{"group":"network","name":"listening","status":"pass","detail":"inside the container"}]}`,
+		},
+	}
+	tooling.install(t)
 	dir := installAt(t, wizard.DeployCompose, srv.URL)
 	_, out, _ := run(t, testBuild(), "doctor", "--offline")
 
@@ -60,13 +73,57 @@ func TestDoctorFindsTheContainerInstallation(t *testing.T) {
 	if !strings.Contains(out, "runs in a container") || !strings.Contains(out, dir) {
 		t.Errorf("output should say which installation it found:\n%s", out)
 	}
-	// This machine's data directory and port belong to nothing: reporting on
-	// them would be answering about a different installation.
-	if !strings.Contains(out, "no local configuration") {
-		t.Errorf("a container is diagnosed over HTTP:\n%s", out)
+	// From inside: the files. From here: the round trip over HTTP.
+	if !strings.Contains(out, "1 token(s) configured") || !strings.Contains(out, "0700") {
+		t.Errorf("the container's own checks should be in the report:\n%s", out)
 	}
-	if !strings.Contains(out, "exec godrop /godrop doctor --offline") {
-		t.Errorf("the checks that need the volume should be one printed command away:\n%s", out)
+	if !strings.Contains(out, "upload") {
+		t.Errorf("the round trip belongs to this side:\n%s", out)
+	}
+	// The container's idea of the network is about its own namespace, so the
+	// answer to that question comes from here.
+	if strings.Contains(out, "inside the container") {
+		t.Errorf("network checks should come from this machine:\n%s", out)
+	}
+	if strings.Contains(out, "docker compose") {
+		t.Errorf("the diagnosis was run, not printed:\n%s", out)
+	}
+}
+
+func TestDoctorCarriesOnWhenTheContainerCannotAnswer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"error":"nope"}`)
+	}))
+	defer srv.Close()
+
+	// Docker is not installed, so the parts only the container can answer for
+	// are missing; the parts this machine can answer for are not.
+	tooling := &stubTooling{found: map[string]bool{}}
+	tooling.install(t)
+	installAt(t, wizard.DeployCompose, srv.URL)
+
+	_, out, _ := run(t, testBuild(), "doctor", "--offline")
+	if !strings.Contains(out, "could not diagnose inside the container") {
+		t.Errorf("output should say what it could not do:\n%s", out)
+	}
+	if !strings.Contains(out, "upload") {
+		t.Errorf("the rest of the report should still be there:\n%s", out)
+	}
+}
+
+func TestAnAnswerFromTheContainerThatIsNotAReport(t *testing.T) {
+	tooling := &stubTooling{
+		found:     map[string]bool{"docker": true},
+		container: "godrop-godrop-1",
+		says:      map[string]string{"doctor": "not json"},
+	}
+	tooling.install(t)
+	installAt(t, wizard.DeployCompose, "")
+
+	_, out, _ := run(t, testBuild(), "doctor", "--offline")
+	if !strings.Contains(out, "could not read the answer from the container") {
+		t.Errorf("output = %s", out)
 	}
 }
 

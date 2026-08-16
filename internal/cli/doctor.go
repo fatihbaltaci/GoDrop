@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -84,8 +85,8 @@ of the process list and the shell history:
 						// exec, not run: inside the running container the
 						// port and the volume are the service's own, so the
 						// report comes back complete rather than half red.
-						inContainer = "docker compose --project-directory " + dir + " exec godrop /godrop doctor --offline"
-						out.skip("the installation in %s runs in a container; checking it over HTTP", dir)
+						inContainer = dir
+						out.skip("the installation in %s runs in a container", dir)
 					} else {
 						env = withEnvFile(env, readEnvFile(filepath.Join(dir, ".env")))
 						out.skip("using the configuration in %s", filepath.Join(dir, ".env"))
@@ -127,17 +128,23 @@ of the process list and the shell history:
 			}
 
 			report := doctor.Run(ctx, opts)
+			// The storage, the permissions and the token file are inside the
+			// container, so the container is asked about them and the two
+			// answers become one report: it is one installation.
+			if inContainer != "" {
+				inside, err := containerReport(ctx, inContainer)
+				if err != nil {
+					out.warn("could not diagnose inside the container: %v", err)
+				} else {
+					report = mergeReports(inside, report)
+				}
+			}
 			if out.json {
 				if err := out.emit(report); err != nil {
 					return err
 				}
 			} else {
 				printReport(out, report)
-				if inContainer != "" {
-					out.printf("\n  Storage, permissions and the token file live inside the container:\n")
-					out.command(inContainer)
-					out.printf("\n")
-				}
 			}
 			if report.Failed() {
 				return silentError{fmt.Errorf("%d check(s) failed", countFailed(report))}
@@ -151,6 +158,40 @@ of the process list and the shell history:
 		"API token for the round-trip check; prefer GODROP_TOKEN, which does not appear in the process list")
 	cmd.Flags().StringVar(&checkURL, "check-url", "", "reachability service (default https://godrop.sh/api/check)")
 	return cmd
+}
+
+// containerReport is the service's own diagnosis of the parts of itself that
+// only it can see: its data directory, its permissions and its token file.
+func containerReport(ctx context.Context, project string) (doctor.Report, error) {
+	var report doctor.Report
+	raw, err := composeRun(ctx, project, "doctor", "--offline", "--json")
+	if err != nil {
+		return report, err
+	}
+	if err := json.Unmarshal(raw, &report); err != nil {
+		return report, fmt.Errorf("could not read the answer from the container: %w", err)
+	}
+	return report, nil
+}
+
+// mergeReports takes each group from whichever side can answer for it. The
+// container knows about its own files; only this machine can say whether the
+// internet reaches the port, and what the newest release is.
+func mergeReports(inside, outside doctor.Report) doctor.Report {
+	fromOutside := map[string]bool{"network": true, "version": true}
+	merged := doctor.Report{Version: outside.Version}
+	for _, c := range inside.Checks {
+		if !fromOutside[c.Group] {
+			merged.Checks = append(merged.Checks, c)
+		}
+	}
+	for _, c := range outside.Checks {
+		if fromOutside[c.Group] || c.Group == "end_to_end" {
+			merged.Checks = append(merged.Checks, c)
+		}
+	}
+	merged.OK = !merged.Failed()
+	return merged
 }
 
 // temporaryToken creates a throwaway token so the round-trip check can exercise

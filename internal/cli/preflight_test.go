@@ -59,6 +59,10 @@ type stubTooling struct {
 	// failArgs is the one command that fails, for a machine where most of the
 	// tooling works and one thing does not.
 	failArgs string
+	// says answers a command whose output matters, keyed by a substring of it.
+	says map[string]string
+	// ranOut records the commands that were asked a question.
+	ranOut []string
 }
 
 func (s *stubTooling) install(t *testing.T) {
@@ -96,8 +100,15 @@ func (s *stubTooling) install(t *testing.T) {
 	originalOutput := runOutput
 	t.Cleanup(func() { runOutput = originalOutput })
 	runOutput = func(_ context.Context, name string, args ...string) (string, error) {
+		line := strings.Join(args, " ")
+		s.ranOut = append(s.ranOut, strings.TrimSpace(name+" "+line))
 		if s.outErr != nil {
 			return "", s.outErr
+		}
+		for match, answer := range s.says {
+			if strings.Contains(line, match) {
+				return answer, nil
+			}
 		}
 		if name == "docker" && len(args) > 0 && args[0] == "inspect" {
 			return s.mount, s.inspectErr
