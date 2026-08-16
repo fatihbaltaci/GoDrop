@@ -26,9 +26,11 @@ jobs:
       - name: Name this release in server.json
         run: |
           # The committed file names the last release. What is being published
-          # is the truth, and the image tag has to follow it.
+          # is the truth, and the image tag has to follow it. An OCI package
+          # carries its version in the identifier and nowhere else; the
+          # registry rejects the entry outright for saying it twice.
           jq --arg v "${{ inputs.version }}" \
-            '.version = $v | .packages[0].version = $v
+            '.version = $v
              | .packages[0].identifier = "ghcr.io/${{ github.repository_owner }}/godrop:" + $v' \
             server.json > server.next.json
           mv server.next.json server.json

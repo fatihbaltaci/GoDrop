@@ -13,7 +13,6 @@
     {
       "registryType": "oci",
       "identifier": "ghcr.io/fatihbaltaci/godrop:1.3.0",
-      "version": "1.3.0",
       "runtimeHint": "docker",
       "transport": {
         "type": "stdio"
