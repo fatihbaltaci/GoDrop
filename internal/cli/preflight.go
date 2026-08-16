@@ -30,6 +30,13 @@ var (
 		cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // the arguments are built here, not by a user
 		return cmd.Run()
 	}
+	// runOutput is for the questions where the answer is what the command
+	// said: which container is running, and what it keeps its files on.
+	runOutput = func(ctx context.Context, name string, args ...string) (string, error) {
+		cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // the arguments are built here, not by a user
+		out, err := cmd.Output()
+		return strings.TrimSpace(string(out)), err
+	}
 	listenOn = func(addr string) (io.Closer, error) { return net.Listen("tcp", addr) }
 	euid     = os.Geteuid
 	// osExecutable is this binary, which setup re-runs for the diagnosis.

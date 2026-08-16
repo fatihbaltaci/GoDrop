@@ -54,7 +54,10 @@ curl -fsSL https://godrop.sh/install.sh | sh
 The script picks the right binary for your machine, **verifies its SHA-256
 checksum** against the published `SHA256SUMS`, installs it, and hands over to a
 setup wizard that writes your configuration, creates your first token and
-checks that the internet can actually reach you.
+checks that the internet can actually reach you. It installs into
+`/usr/local/bin` so that `godrop` is on the PATH of the shell you ran it from;
+without root and without sudo it falls back to `~/.local/bin` and says what to
+add to your PATH.
 
 Other ways:
 
@@ -809,6 +812,12 @@ $ godrop doctor
   ✗ proxy body limit     a proxy rejected a tiny upload with 413
       → nginx: client_max_body_size 100m;
 ```
+
+Run it from any shell on the server: it reads the `.env` setup wrote, so the
+diagnosis is of your installation rather than of an empty environment. A
+compose deployment keeps its files in a volume only the container can see, so
+that one is checked over HTTP and the command for the rest is printed with the
+report.
 
 It exits non-zero when a check fails, so it works as a deployment gate:
 `godrop doctor --json | jq '.checks[] | select(.status=="fail")'`.

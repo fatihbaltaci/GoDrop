@@ -63,13 +63,44 @@ choose_bin_dir() {
 	if [ -n "$BIN_DIR" ]; then
 		return
 	fi
-	if [ -w /usr/local/bin ] 2>/dev/null; then
+	if [ -w /usr/local/bin ] 2>/dev/null || [ "$(id -u)" = "0" ]; then
 		BIN_DIR=/usr/local/bin
-	elif [ "$(id -u)" = "0" ]; then
-		BIN_DIR=/usr/local/bin
-	else
-		BIN_DIR="$HOME/.local/bin"
+		return
 	fi
+	# /usr/local/bin is on everybody's PATH. ~/.local/bin often is not: Ubuntu
+	# adds it at login and only if it already exists, so a binary installed
+	# there is one this very shell cannot find. sudo is worth it for that.
+	if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+		BIN_DIR=/usr/local/bin
+		return
+	fi
+	BIN_DIR="$HOME/.local/bin"
+}
+
+# on_path reports whether a directory is one the shell already searches.
+on_path() {
+	case ":$PATH:" in
+		*":$1:"*) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+# add_to_profile appends the PATH line to the login file of the shell in use,
+# once. A shell that is already open cannot be changed from here, which is why
+# the command to run now is printed as well.
+add_to_profile() {
+	dir=$1
+	case "${SHELL:-}" in
+		*zsh) profile="$HOME/.zshrc" ;;
+		*bash) profile="$HOME/.bashrc" ;;
+		*) profile="$HOME/.profile" ;;
+	esac
+	line="export PATH=\"$dir:\$PATH\""
+	if [ -f "$profile" ] && grep -Fqs "$dir" "$profile"; then
+		return
+	fi
+	printf '\n# Added by the GoDrop installer\n%s\n' "$line" >> "$profile" 2>/dev/null || return
+	say "added it to $profile, for the next shell you open"
 }
 
 main() {
@@ -129,13 +160,20 @@ main() {
 	fi
 	ok "installed $BIN_DIR/godrop"
 
-	case ":$PATH:" in
-		*":$BIN_DIR:"*) ;;
-		*) warn "$BIN_DIR is not in your PATH. Add: export PATH=\"$BIN_DIR:\$PATH\"" ;;
-	esac
-
 	printf '\n'
 	"$BIN_DIR/godrop" version
+
+	# Last, so that it is the line still on screen when the wizard starts.
+	if ! on_path "$BIN_DIR"; then
+		printf '\n'
+		warn "$BIN_DIR is not in this shell's PATH"
+		add_to_profile "$BIN_DIR"
+		printf '\n  Run this once, in this terminal, so that %sgodrop%s works here too:\n\n' "$BOLD" "$RESET"
+		# shellcheck disable=SC2016 # $PATH is meant to be literal: it is a
+		# command for the reader to run, not one to expand here.
+		printf '      %sexport PATH="%s:$PATH"%s\n' "$BOLD" "$BIN_DIR" "$RESET"
+		printf '\n  %s(a script piped into sh cannot change the shell that started it)%s\n' "$DIM" "$RESET"
+	fi
 
 	if [ "${GODROP_NO_INIT:-}" = "1" ]; then
 		printf '\n  Next: %sgodrop init%s\n\n' "$BOLD" "$RESET"

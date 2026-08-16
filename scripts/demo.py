@@ -46,13 +46,15 @@ MIN_COLUMNS = 78
 COLUMNS = max(MIN_COLUMNS, max(len(PROMPT if kind == "in" else "") + len(text)
                                for kind, text in SESSION) + 1)
 
-# Timing, in seconds.
-TYPE_PER_CHAR = 0.032
-AFTER_TYPING = 0.45
-BETWEEN_OUTPUT = 0.09
-AFTER_BLOCK = 0.7
-HOLD = 2.6
-START = 0.5
+# Timing, in seconds. Typing is quick, because nobody is watching it for the
+# suspense; the hold at the end is long, because that is the part with the URL
+# in it and a loop that restarts before it has been read has shown nothing.
+TYPE_PER_CHAR = 0.018
+AFTER_TYPING = 0.32
+BETWEEN_OUTPUT = 0.07
+AFTER_BLOCK = 0.55
+HOLD = 6.0
+START = 0.4
 
 
 def runs(kind: str, text: str):

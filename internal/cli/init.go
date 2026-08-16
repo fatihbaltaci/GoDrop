@@ -159,7 +159,7 @@ are skipped automatically when there is no terminal.`,
 				return err
 			}
 			verify(cmd.Context(), out, answers)
-			printFinish(out, answers, outDir)
+			printFinish(cmd.Context(), out, answers, outDir)
 			return nil
 		},
 	}
@@ -471,7 +471,7 @@ func portList(ports []int) string {
 	}
 }
 
-func printFinish(out *output, a wizard.Answers, outDir string) {
+func printFinish(ctx context.Context, out *output, a wizard.Answers, outDir string) {
 	if steps := wizard.NextSteps(a); len(steps) > 0 {
 		out.heading("Next")
 		if outDir != "." {
@@ -481,17 +481,13 @@ func printFinish(out *output, a wizard.Answers, outDir string) {
 			out.command(step)
 		}
 	}
-	out.heading("Use it")
+	printInstallation(ctx, out, a, outDir, a.Deployment)
+
 	// The example uploads the picture written a moment ago, by its full path:
 	// a command that only works from one directory is a command that fails.
-	for _, ex := range wizard.CurlExamples(a, filepath.Join(outDir, wizard.SampleName)) {
-		out.command(ex)
-	}
+	printUseIt(out, a, filepath.Join(outDir, wizard.SampleName), outDir, a.Deployment, a.DataDir)
 	out.printf("\n  Point an AI agent at it with two values:\n")
-	base := a.BaseURL
-	if base == "" {
-		base = "http://localhost:" + wizard.ListenPort(a)
-	}
+	base := wizard.PublicAddress(a)
 	out.command("GODROP_URL=" + base)
 	out.command("GODROP_TOKEN=" + a.Token)
 	out.printf("\n  It can learn the rest by itself: %s/llms.txt\n", base)

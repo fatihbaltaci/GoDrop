@@ -255,6 +255,127 @@ func TestUpdateMovesTheServiceOnTooWhenThereIsOne(t *testing.T) {
 	}
 }
 
+func TestTheSummarySaysWhereEverythingIs(t *testing.T) {
+	tooling := &stubTooling{
+		found:     map[string]bool{"docker": true},
+		container: "godrop-godrop-1",
+		mount:     "docker volume godrop_godrop-data",
+	}
+	tooling.install(t)
+	dir := existingInstall(t, wizard.DeployCompose)
+
+	var buf strings.Builder
+	if err := upgrade(context.Background(), &output{w: &buf}, testBuild(), dir); err != nil {
+		t.Fatal(err)
+	}
+	text := buf.String()
+	for _, want := range []string{
+		"location", dir,
+		"docker compose, container godrop-godrop-1",
+		"docker volume godrop_godrop-data",
+		"http://localhost:48123",
+		"Use it", "-F \"file=@" + filepath.Join(dir, wizard.SampleName) + "\"",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the summary should mention %q:\n%s", want, text)
+		}
+	}
+	// An installation from before there was a picture gets one, so that the
+	// example above is a command that works.
+	if _, err := os.Stat(filepath.Join(dir, wizard.SampleName)); err != nil {
+		t.Errorf("the sample should have been written: %v", err)
+	}
+}
+
+func TestTheSummarySaysLessWhenDockerCannotAnswer(t *testing.T) {
+	dir := existingInstall(t, wizard.DeployCompose)
+	a := answersFromEnv(dir)
+
+	// No docker at all.
+	none := &stubTooling{found: map[string]bool{}}
+	none.install(t)
+	var buf strings.Builder
+	printInstallation(context.Background(), &output{w: &buf}, a, dir, wizard.DeployCompose)
+	if !strings.Contains(buf.String(), "docker compose") || strings.Contains(buf.String(), "container ") {
+		t.Errorf("output = %s", buf.String())
+	}
+
+	// Docker, but nothing running: no name to print, and no mount either.
+	stopped := &stubTooling{found: map[string]bool{"docker": true}}
+	stopped.install(t)
+	buf.Reset()
+	printInstallation(context.Background(), &output{w: &buf}, a, dir, wizard.DeployCompose)
+	if strings.Contains(buf.String(), "container ") {
+		t.Errorf("output = %s", buf.String())
+	}
+
+	// Running, but the mount cannot be read: the name is still worth printing.
+	half := &stubTooling{found: map[string]bool{"docker": true}, container: "x-godrop-1"}
+	half.install(t)
+	buf.Reset()
+	printInstallation(context.Background(), &output{w: &buf}, a, dir, wizard.DeployCompose)
+	if !strings.Contains(buf.String(), "container x-godrop-1") || strings.Contains(buf.String(), "uploads") {
+		t.Errorf("output = %s", buf.String())
+	}
+
+	// Running, and the question about its mounts failing: still the name.
+	noMount := &stubTooling{
+		found: map[string]bool{"docker": true}, container: "x-godrop-1", inspectErr: errAlreadyThere,
+	}
+	noMount.install(t)
+	buf.Reset()
+	printInstallation(context.Background(), &output{w: &buf}, a, dir, wizard.DeployCompose)
+	if !strings.Contains(buf.String(), "container x-godrop-1") || strings.Contains(buf.String(), "uploads") {
+		t.Errorf("output = %s", buf.String())
+	}
+
+	// The question itself failing is the same as no answer.
+	broken := &stubTooling{found: map[string]bool{"docker": true}, outErr: errAlreadyThere}
+	broken.install(t)
+	buf.Reset()
+	printInstallation(context.Background(), &output{w: &buf}, a, dir, wizard.DeployCompose)
+	if strings.Contains(buf.String(), "container ") {
+		t.Errorf("output = %s", buf.String())
+	}
+}
+
+func TestUpdateCarriesOnWhenThePictureCannotBeWritten(t *testing.T) {
+	requireStrictPermissions(t)
+	tooling := &stubTooling{found: map[string]bool{"docker": true}, container: "godrop-godrop-1"}
+	tooling.install(t)
+	dir := existingInstall(t, wizard.DeployCompose)
+	// An installation from before there was a picture, in a directory that
+	// cannot be written to now.
+	if err := os.Remove(filepath.Join(dir, wizard.SampleName)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	var buf strings.Builder
+	if err := upgrade(context.Background(), &output{w: &buf}, testBuild(), dir); err != nil {
+		t.Fatal(err)
+	}
+	// No picture to name, so the example falls back to the documentation's.
+	if !strings.Contains(buf.String(), "file=@photo.jpg") {
+		t.Errorf("output = %s", buf.String())
+	}
+}
+
+func TestTheSummaryNamesTheUnitAndTheDataDirectory(t *testing.T) {
+	dir := existingInstall(t, wizard.DeploySystemd)
+	a := answersFromEnv(dir)
+	a.DataDir = "/var/lib/godrop"
+
+	var buf strings.Builder
+	printInstallation(context.Background(), &output{w: &buf}, a, dir, wizard.DeploySystemd)
+	if !strings.Contains(buf.String(), "systemd unit godrop") || !strings.Contains(buf.String(), "/var/lib/godrop") {
+		t.Errorf("output = %s", buf.String())
+	}
+}
+
 func TestReadEnvFileIgnoresWhatIsNotAValue(t *testing.T) {
 	dir := t.TempDir()
 	body := "# a comment\n\nGODROP_ADDR=:48123\n  GODROP_BASE_URL = https://files.example.com \nnonsense\n"

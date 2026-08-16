@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -12,7 +14,20 @@ import (
 	"github.com/fatihbaltaci/GoDrop/internal/config"
 	"github.com/fatihbaltaci/GoDrop/internal/doctor"
 	"github.com/fatihbaltaci/GoDrop/internal/tokens"
+	"github.com/fatihbaltaci/GoDrop/internal/wizard"
 )
+
+// withEnvFile answers from the environment first and the generated .env
+// second: what the operator exported for this command wins over what setup
+// wrote weeks ago.
+func withEnvFile(base func(string) string, values map[string]string) func(string) string {
+	return func(key string) string {
+		if v := base(key); v != "" {
+			return v
+		}
+		return values[key]
+	}
+}
 
 func newDoctorCmd(build Build) *cobra.Command {
 	var (
@@ -40,15 +55,59 @@ of the process list and the shell history:
 			ctx, cancel := context.WithTimeout(cmd.Context(), 90*time.Second)
 			defer cancel()
 
-			cfg, cfgErr := config.Load()
+			out := newOutput(cmd)
 			// A token on the command line ends up in the process list and in
 			// shell history, where anyone with a local account can read it, so
 			// the environment is the documented way to pass one.
 			if token == "" {
 				token = os.Getenv("GODROP_TOKEN")
 			}
+
+			// A shell is not the service's environment: setup wrote a .env
+			// that this prompt has never sourced, and without it the diagnosis
+			// is of a machine with GoDrop configured nowhere, which is nobody's
+			// question. --url means the operator has already said what to look
+			// at, and is left alone.
+			env := os.Getenv
+			inContainer := ""
+			if url == "" {
+				if dir := wizard.ConfigDir(runtime.GOOS, os.Getenv, os.Geteuid() == 0); installedAt(dir) {
+					a := answersFromEnv(dir)
+					if deploymentAt(dir) == wizard.DeployCompose {
+						// The files are in a volume only the container can
+						// reach, so from out here the honest view is the one
+						// over HTTP; the rest is one command away, printed
+						// with the report.
+						url = wizard.PublicAddress(a)
+						if token == "" {
+							token = a.Token
+						}
+						// exec, not run: inside the running container the
+						// port and the volume are the service's own, so the
+						// report comes back complete rather than half red.
+						inContainer = "docker compose --project-directory " + dir + " exec godrop /godrop doctor --offline"
+						out.skip("the installation in %s runs in a container; checking it over HTTP", dir)
+					} else {
+						env = withEnvFile(env, readEnvFile(filepath.Join(dir, ".env")))
+						out.skip("using the configuration in %s", filepath.Join(dir, ".env"))
+					}
+				}
+			}
+
+			// Diagnosing something over HTTP means this machine's own
+			// configuration is not the subject: its data directory, its port
+			// and its tokens belong to a different installation, and reporting
+			// on them here is answering a question nobody asked.
+			var (
+				cfg    *config.Config
+				cfgErr error
+			)
+			if url == "" {
+				cfg, cfgErr = config.LoadFrom(env)
+			}
 			opts := doctor.Options{
 				Config:    cfg,
+				Env:       env,
 				ConfigErr: cfgErr,
 				Version:   build.Version,
 				Offline:   offline,
@@ -69,13 +128,17 @@ of the process list and the shell history:
 			}
 
 			report := doctor.Run(ctx, opts)
-			out := newOutput(cmd)
 			if out.json {
 				if err := out.emit(report); err != nil {
 					return err
 				}
 			} else {
 				printReport(out, report)
+				if inContainer != "" {
+					out.printf("\n  Storage, permissions and the token file live inside the container:\n")
+					out.command(inContainer)
+					out.printf("\n")
+				}
 			}
 			if report.Failed() {
 				return silentError{fmt.Errorf("%d check(s) failed", countFailed(report))}

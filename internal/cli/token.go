@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -25,6 +26,22 @@ second, with no restart needed.`,
 	cmd.PersistentFlags().String("data-dir", "", "data directory (default $GODROP_DATA_DIR or ./data)")
 	cmd.AddCommand(newTokenCreateCmd(), newTokenListCmd(), newTokenRevokeCmd())
 	return cmd
+}
+
+// localAddress is where this instance answers, from the same environment the
+// server reads: the base URL if it has one, and the listening port otherwise.
+func localAddress() string {
+	if base := strings.TrimRight(os.Getenv("GODROP_BASE_URL"), "/"); base != "" {
+		return base
+	}
+	addr := strings.TrimSpace(os.Getenv("GODROP_ADDR"))
+	if addr == "" {
+		addr = config.DefaultAddr
+	}
+	if _, port, err := net.SplitHostPort(addr); err == nil && port != "" {
+		return "http://localhost:" + port
+	}
+	return "http://localhost" + addr
 }
 
 // dataDir resolves where the token file lives, honouring the flag first and the
@@ -80,7 +97,9 @@ func newTokenCreateCmd() *cobra.Command {
 			out.warn("this is the only time the token is shown; store it now")
 			out.printf("\n  Try it:\n")
 			out.command(fmt.Sprintf(`curl -X POST -H "Authorization: Bearer %s" \`, plain))
-			out.command(`  -F "file=@photo.jpg" http://localhost:8080/upload`)
+			// The address this instance actually answers on: a printed
+			// example with somebody else's port in it is not an example.
+			out.command(fmt.Sprintf(`  -F "file=@photo.jpg" %s/upload`, localAddress()))
 			return nil
 		},
 	}

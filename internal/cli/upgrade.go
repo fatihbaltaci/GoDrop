@@ -49,8 +49,33 @@ func upgrade(ctx context.Context, out *output, build Build, dir string) error {
 	if err := upgradeService(ctx, out, dir, deployment); err != nil {
 		return err
 	}
-	runDoctor(ctx, out, build, answersFromEnv(dir))
+	a := answersFromEnv(dir)
+	runDoctor(ctx, out, build, a)
+
+	// An installation from before there was a sample picture has none, and the
+	// example below names one.
+	sample := filepath.Join(dir, wizard.SampleName)
+	if _, err := os.Stat(sample); err != nil {
+		if err := os.WriteFile(sample, []byte(wizard.SampleImage()), 0o644); err != nil { //nolint:gosec // G306, a picture is not a secret
+			sample = ""
+		}
+	}
+
+	printInstallation(ctx, out, a, dir, deployment)
+	printUseIt(out, a, sample, dir, deployment, a.DataDir)
 	return nil
+}
+
+// printUseIt is the block somebody copies from: the three requests, and the
+// command that makes a token for whatever they are wiring GoDrop into.
+func printUseIt(out *output, a wizard.Answers, sample, dir, deployment, dataDir string) {
+	out.heading("Use it")
+	for _, ex := range wizard.CurlExamples(a, sample) {
+		out.command(ex)
+	}
+	out.printf("\n  A token of its own for an agent, a script or a second machine:\n")
+	out.command(tokenCommand(dir, deployment, dataDir))
+	out.printf("\n")
 }
 
 // upgradeService restarts whatever is running the service, onto the release
@@ -91,6 +116,88 @@ func upgradeService(ctx context.Context, out *output, dir, deployment string) er
 		out.skip("start the new binary yourself: godrop serve")
 	}
 	return nil
+}
+
+// printInstallation is the closing summary: where the files are, what is
+// running the service, where the uploads end up and the address to send one
+// to. It is what somebody comes back for a week later, when the terminal that
+// printed the setup is long gone.
+func printInstallation(ctx context.Context, out *output, a wizard.Answers, dir, deployment string) {
+	out.heading("Your installation")
+	out.skip("%-22s %s", "location", dir)
+	switch deployment {
+	case wizard.DeployCompose:
+		// The container's name is docker's to decide, from the directory and
+		// rules that are docker's rather than ours, so it is asked for rather
+		// than guessed. A machine with no docker on it simply says less.
+		name, storage := composeContainer(ctx, dir)
+		if name == "" {
+			out.skip("%-22s docker compose", "service")
+			break
+		}
+		out.skip("%-22s docker compose, container %s", "service", name)
+		if storage != "" {
+			out.skip("%-22s %s", "uploads", storage)
+		}
+	case wizard.DeploySystemd:
+		out.skip("%-22s systemd unit godrop", "service")
+		out.skip("%-22s %s", "uploads", a.DataDir)
+	default:
+		out.skip("%-22s none; you run it yourself with godrop serve", "service")
+		out.skip("%-22s %s", "uploads", a.DataDir)
+	}
+	out.skip("%-22s %s", "address", wizard.PublicAddress(a))
+}
+
+// tokenCommand is how this installation makes another token. Where the token
+// file is decides it: a compose deployment keeps it in a volume only the
+// container can reach, so the command has to go through docker.
+func tokenCommand(dir, deployment, dataDir string) string {
+	if deployment == wizard.DeployCompose {
+		return "docker compose --project-directory " + dir + " run --rm godrop token create --name claude-code"
+	}
+	if dataDir == "" {
+		return godropCommand() + " token create --name claude-code"
+	}
+	return godropCommand() + " token create --data-dir " + dataDir + " --name claude-code"
+}
+
+// godropCommand is how to invoke this program from a shell. Usually that is
+// its name; when it was installed somewhere that is not on the PATH, printing
+// the name would print a command that answers "command not found".
+func godropCommand() string {
+	if _, err := lookPath("godrop"); err == nil {
+		return "godrop"
+	}
+	self, err := osExecutable()
+	if err != nil {
+		return "godrop"
+	}
+	return self
+}
+
+// composeContainer asks docker which container is running the service, and
+// what it keeps the uploads on. Both are empty when there is nothing to ask
+// or nothing running: a summary with a wrong name in it is worse than a
+// summary with one line fewer.
+func composeContainer(ctx context.Context, dir string) (name, storage string) {
+	if _, err := lookPath("docker"); err != nil {
+		return "", ""
+	}
+	name, err := runOutput(ctx, "docker", "compose", "--project-directory", dir, "ps", "--format", "{{.Name}}")
+	if err != nil || name == "" {
+		return "", ""
+	}
+	name = strings.Fields(name)[0]
+	// /data is where the compose file mounts the uploads, whether that is a
+	// named volume or a directory on the host.
+	const format = `{{range .Mounts}}{{if eq .Destination "/data"}}` +
+		`{{if eq .Type "volume"}}docker volume {{.Name}}{{else}}{{.Source}}{{end}}{{end}}{{end}}`
+	storage, err = runOutput(ctx, "docker", "inspect", "--format", format, name)
+	if err != nil {
+		storage = ""
+	}
+	return name, storage
 }
 
 // answersFromEnv reads back the few values the verification needs from the

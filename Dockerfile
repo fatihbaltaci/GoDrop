@@ -36,14 +36,19 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
       -X main.posthogHost=${POSTHOG_HOST}" \
     -o /godrop ./cmd/godrop
 
-# The data directory is created here so it carries the right ownership even when
-# no volume is mounted over it.
-RUN mkdir -p /data && chown 65532:65532 /data
+# The data directory is created here so it carries the right ownership and mode
+# even when no volume is mounted over it. 0700 matters: docker copies the
+# image's permissions into a fresh named volume, and uploads are not for
+# everyone with a shell on the host to read.
+RUN mkdir -p /data && chown 65532:65532 /data && chmod 700 /data
 
 FROM gcr.io/distroless/static-debian12:nonroot
 
 COPY --from=build /godrop /godrop
-COPY --from=build --chown=nonroot:nonroot /data /data
+# --chmod as well as --chown: COPY creates the destination directory with the
+# default 0755 whatever the source mode was, and docker seeds a fresh named
+# volume from these permissions.
+COPY --from=build --chown=nonroot:nonroot --chmod=700 /data /data
 
 # The listen address is deliberately not set here: GoDrop picks 8747 on its
 # own, and 443 when TLS is on, which a fixed value here would override.

@@ -50,6 +50,12 @@ type stubTooling struct {
 	// which is the machine where nothing nearby is free either.
 	busy map[string]bool
 	root bool
+	// What the commands that are asked a question answer: the container
+	// docker compose is running, and what it keeps the uploads on.
+	container  string
+	mount      string
+	outErr     error
+	inspectErr error
 }
 
 func (s *stubTooling) install(t *testing.T) {
@@ -77,6 +83,17 @@ func (s *stubTooling) install(t *testing.T) {
 		return s.runErr
 	}
 	runCommand, runQuietly = record, record
+	originalOutput := runOutput
+	t.Cleanup(func() { runOutput = originalOutput })
+	runOutput = func(_ context.Context, name string, args ...string) (string, error) {
+		if s.outErr != nil {
+			return "", s.outErr
+		}
+		if name == "docker" && len(args) > 0 && args[0] == "inspect" {
+			return s.mount, s.inspectErr
+		}
+		return s.container, nil
+	}
 	listenOn = func(addr string) (io.Closer, error) {
 		_, port, _ := net.SplitHostPort(addr)
 		if s.listenAs != nil && (len(s.busy) == 0 || s.busy[port]) {

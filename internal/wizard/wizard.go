@@ -758,6 +758,15 @@ func PublicPort(a Answers) int {
 	return 0
 }
 
+// PublicAddress is where this installation answers: the address it was
+// configured with, or the local one it is reachable at without one.
+func PublicAddress(a Answers) string {
+	if a.BaseURL != "" {
+		return a.BaseURL
+	}
+	return "http://localhost:" + ListenPort(a)
+}
+
 // CurlExamples renders ready-to-run commands for the finished installation.
 func CurlExamples(a Answers, sample string) []string {
 	return CurlExamplesFor(runtime.GOOS, a, sample)
@@ -767,10 +776,7 @@ func CurlExamples(a Answers, sample string) []string {
 // command is curl.exe: plain "curl" in PowerShell is an alias for
 // Invoke-WebRequest, which does not understand these flags.
 func CurlExamplesFor(goos string, a Answers, sample string) []string {
-	base := a.BaseURL
-	if base == "" {
-		base = "http://localhost:" + a.Port
-	}
+	base := PublicAddress(a)
 	curl := "curl"
 	if goos == "windows" {
 		curl = "curl.exe"
