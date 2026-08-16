@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -21,6 +23,7 @@ import (
 	"github.com/fatihbaltaci/GoDrop/internal/telemetry"
 	"github.com/fatihbaltaci/GoDrop/internal/tlsconf"
 	"github.com/fatihbaltaci/GoDrop/internal/tokens"
+	"github.com/fatihbaltaci/GoDrop/internal/wizard"
 )
 
 func newServeCmd(build Build) *cobra.Command {
@@ -66,6 +69,19 @@ func runServe(cmd *cobra.Command, build Build) error {
 		logger.Error("token file could not be reloaded; still using the last good copy", "err", err.Error())
 	})
 	if tokenStore.Count() == 0 {
+		// A configured installation on this machine and an empty environment
+		// mean the service is somewhere else, usually a container, and this
+		// would have been a second one. Saying so beats three fixes for a
+		// problem the operator does not have.
+		if dir := wizard.ConfigDir(runtime.GOOS, os.Getenv, os.Geteuid() == 0); installedAt(dir) {
+			return fmt.Errorf(`no API tokens in this shell's environment, refusing to start with unauthenticated uploads.
+
+GoDrop is already configured in %s, and its service reads that file itself.
+
+  Is it running?   godrop doctor
+  Start it here:   set -a && . %s && set +a && godrop serve`,
+				dir, filepath.Join(dir, ".env"))
+		}
 		return errors.New(`no API tokens configured, refusing to start with unauthenticated uploads.
 
   Create one:   godrop token create --name default

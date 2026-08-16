@@ -30,14 +30,32 @@ func TestExecuteWritesToTheProcessStreams(t *testing.T) {
 	}
 }
 
-func TestRootWithoutArgumentsServes(t *testing.T) {
-	// A container image runs the bare binary, so the root command must be the
-	// server. Here it fails for want of a token, which proves it got there.
+func TestRootWithoutArgumentsExplainsItself(t *testing.T) {
+	// Typing the name of a program is a question. The container image asks for
+	// the server explicitly, with CMD, so nothing depends on this starting one.
+	code, out, stderr := run(t, testBuild())
+	if code != 0 {
+		t.Errorf("exit = %d, stderr = %q", code, stderr)
+	}
+	for _, want := range []string{"godrop serve", "Available Commands", "init", "doctor"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("help should mention %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestServePointsAtTheInstallationItFound(t *testing.T) {
+	// An empty environment on a machine that is already set up means the
+	// service is somewhere else, usually a container.
+	installAt(t, wizard.DeployCompose, "")
 	t.Setenv("GODROP_DATA_DIR", t.TempDir())
 	t.Setenv("GODROP_TOKENS", "")
-	code, _, stderr := run(t, testBuild())
-	if code == 0 || !strings.Contains(stderr, "no API tokens") {
+	code, _, stderr := run(t, testBuild(), "serve")
+	if code == 0 || !strings.Contains(stderr, "already configured in") {
 		t.Errorf("exit = %d, stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stderr, "godrop doctor") {
+		t.Errorf("stderr should say how to find out: %q", stderr)
 	}
 }
 

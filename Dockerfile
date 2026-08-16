@@ -62,3 +62,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD ["/godrop", "health"]
 
 ENTRYPOINT ["/godrop"]
+# The image is a server; a person at a prompt typing `godrop` is not asking for
+# one, so the default belongs here rather than in the command with no name.
+CMD ["serve"]

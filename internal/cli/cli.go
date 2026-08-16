@@ -62,13 +62,16 @@ func newRootCmd(build Build) *cobra.Command {
 		Short: "Upload a file, get a hard-to-guess URL",
 		Long: `GoDrop is a tiny self-hosted file host.
 
-Running it without a subcommand starts the server, so a container image needs
-no command of its own.`,
+Start the server with "godrop serve"; the container image does that by itself.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args:          cobra.NoArgs,
+		// No subcommand is a question, not an instruction to start serving:
+		// somebody typing the name of a program wants to know what it does,
+		// and on a machine that already runs GoDrop a second server started by
+		// accident fails in a way that reads like the first one is broken.
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runServe(cmd, build)
+			return cmd.Help()
 		},
 	}
 	cmd.PersistentFlags().BoolVar(&jsonOut, "json", false, "machine-readable output")

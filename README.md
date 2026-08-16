@@ -408,8 +408,7 @@ so it cannot drift:
 $ godrop --help
 GoDrop is a tiny self-hosted file host.
 
-Running it without a subcommand starts the server, so a container image needs
-no command of its own.
+Start the server with "godrop serve"; the container image does that by itself.
 
 Usage:
   godrop [flags]
