@@ -619,7 +619,9 @@ func Files(a Answers, binaryPath string) []GeneratedFile {
 	if needsProxy(a) {
 		files = append(files, GeneratedFile{Name: "Caddyfile", Body: Caddyfile(a), Perm: 0o644})
 	}
-	return files
+	// Last, because it is the least important of them and the first one the
+	// operator will use: the picture the closing example uploads.
+	return append(files, GeneratedFile{Name: SampleName, Body: SampleImage(), Perm: 0o644})
 }
 
 // Write persists the generated files into dir, refusing to clobber existing
@@ -757,12 +759,14 @@ func PublicPort(a Answers) int {
 }
 
 // CurlExamples renders ready-to-run commands for the finished installation.
-func CurlExamples(a Answers) []string { return CurlExamplesFor(runtime.GOOS, a) }
+func CurlExamples(a Answers, sample string) []string {
+	return CurlExamplesFor(runtime.GOOS, a, sample)
+}
 
 // CurlExamplesFor renders the examples for a given platform. On Windows the
 // command is curl.exe: plain "curl" in PowerShell is an alias for
 // Invoke-WebRequest, which does not understand these flags.
-func CurlExamplesFor(goos string, a Answers) []string {
+func CurlExamplesFor(goos string, a Answers, sample string) []string {
 	base := a.BaseURL
 	if base == "" {
 		base = "http://localhost:" + a.Port
@@ -771,8 +775,13 @@ func CurlExamplesFor(goos string, a Answers) []string {
 	if goos == "windows" {
 		curl = "curl.exe"
 	}
+	// The first example uploads the picture setup just wrote, so that pasting
+	// it uploads something rather than reporting that photo.jpg is missing.
+	if sample == "" {
+		sample = "photo.jpg"
+	}
 	return []string{
-		fmt.Sprintf("%s -X POST -H \"Authorization: Bearer %s\" -F \"file=@photo.jpg\" %s/upload", curl, a.Token, base),
+		fmt.Sprintf("%s -X POST -H \"Authorization: Bearer %s\" -F \"file=@%s\" %s/upload", curl, a.Token, sample, base),
 		fmt.Sprintf("%s -O %s/f/<id>/<name>", curl, base),
 		fmt.Sprintf("%s -X DELETE -H \"Authorization: Bearer %s\" %s/f/<id>/<name>", curl, a.Token, base),
 	}

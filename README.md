@@ -126,6 +126,7 @@ Checks
 Written
   ✓ /home/you/.godrop/.env  (chmod 600, contains your token)
   ✓ /home/you/.godrop/docker-compose.yml
+  ✓ /home/you/.godrop/sample.png  (a picture, so the first example below uploads something)
 
 Your API token
 
@@ -143,6 +144,11 @@ Verifying
   ✓ firewall               ufw allows port 80
   ✓ external access        reachable (HTTP 200, from FRA)
 
+Use it
+      curl -X POST -H "Authorization: Bearer gd_7f3a…" \
+        -F "file=@/home/you/.godrop/sample.png" https://files.example.com/upload
+      ...
+
 Anonymous heartbeat
   - once a day: {install_id, version, os, arch, deploy}
   → turn it off any time with: godrop telemetry off
@@ -152,7 +158,8 @@ Four questions, and the last one is a choice between the recommended limits and
 setting them yourself. Everything the answers depend on is checked before a
 single file is written, so a setup that cannot work says so at the start rather
 than at the end, and the service is started and verified here rather than left
-as a command to paste.
+as a command to paste. The picture is there so that the first command you paste
+uploads something, instead of telling you that `photo.jpg` does not exist.
 
 Answering "GoDrop gets one from Let's Encrypt" is all HTTPS takes: it obtains
 the certificate itself and renews it, so there is no proxy to install and

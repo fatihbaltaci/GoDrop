@@ -330,8 +330,9 @@ func TestWriteCreatesFilesWithTheRightPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Write: %v", err)
 	}
-	if len(written) != 3 {
-		t.Fatalf("wrote %v, want three files", written)
+	// .env, the compose file, the Caddyfile and the sample picture.
+	if len(written) != 4 {
+		t.Fatalf("wrote %v, want four files", written)
 	}
 	info, err := os.Stat(filepath.Join(dir, ".env"))
 	if err != nil {
@@ -510,7 +511,7 @@ func TestCurlExamplesAreReadyToRun(t *testing.T) {
 	a := Defaults()
 	a.BaseURL = "https://files.example.com"
 	a.Token = "gd_abc"
-	examples := strings.Join(CurlExamplesFor("linux", a), "\n")
+	examples := strings.Join(CurlExamplesFor("linux", a, "/home/you/.godrop/sample.png"), "\n")
 	if !strings.Contains(examples, `-H "Authorization: Bearer gd_abc"`) {
 		t.Errorf("examples should carry the real token:\n%s", examples)
 	}
@@ -519,14 +520,14 @@ func TestCurlExamplesAreReadyToRun(t *testing.T) {
 	}
 
 	a.BaseURL = ""
-	local := strings.Join(CurlExamplesFor("linux", a), "\n")
+	local := strings.Join(CurlExamplesFor("linux", a, ""), "\n")
 	if !strings.Contains(local, "http://localhost:"+Defaults().Port+"/upload") {
 		t.Errorf("without a base URL the examples should target localhost:\n%s", local)
 	}
 
 	// In PowerShell "curl" is an alias for Invoke-WebRequest, which would fail
 	// on these flags, so Windows users are given curl.exe.
-	windows := strings.Join(CurlExamplesFor("windows", a), "\n")
+	windows := strings.Join(CurlExamplesFor("windows", a, ""), "\n")
 	if !strings.Contains(windows, "curl.exe -X POST") {
 		t.Errorf("windows examples = %s", windows)
 	}
@@ -791,7 +792,7 @@ func TestPlatformWrappersUseThisHost(t *testing.T) {
 	if got, want := NextSteps(a), NextStepsFor(runtime.GOOS, a); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("NextSteps should render for this platform:\n%v\n%v", got, want)
 	}
-	if got, want := CurlExamples(a), CurlExamplesFor(runtime.GOOS, a); strings.Join(got, "\n") != strings.Join(want, "\n") {
+	if got, want := CurlExamples(a, "x.png"), CurlExamplesFor(runtime.GOOS, a, "x.png"); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("CurlExamples should render for this platform:\n%v\n%v", got, want)
 	}
 }

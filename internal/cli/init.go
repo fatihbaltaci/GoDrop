@@ -204,11 +204,14 @@ func printBanner(out *output, build Build) {
 func reportSetup(out *output, a wizard.Answers, written []string) {
 	out.heading("Written")
 	for _, w := range written {
-		mode := ""
-		if filepath.Base(w) == ".env" {
-			mode = "  (chmod 600, contains your token)"
+		note := ""
+		switch filepath.Base(w) {
+		case ".env":
+			note = "  (chmod 600, contains your token)"
+		case wizard.SampleName:
+			note = "  (a picture, so the first example below uploads something)"
 		}
-		out.success("%s%s", w, mode)
+		out.success("%s%s", w, note)
 	}
 
 	out.heading("Your API token")
@@ -467,7 +470,9 @@ func printFinish(out *output, a wizard.Answers, outDir string) {
 		}
 	}
 	out.heading("Use it")
-	for _, ex := range wizard.CurlExamples(a) {
+	// The example uploads the picture written a moment ago, by its full path:
+	// a command that only works from one directory is a command that fails.
+	for _, ex := range wizard.CurlExamples(a, filepath.Join(outDir, wizard.SampleName)) {
 		out.command(ex)
 	}
 	out.printf("\n  Point an AI agent at it with two values:\n")
