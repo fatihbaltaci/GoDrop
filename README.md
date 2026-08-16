@@ -72,10 +72,10 @@ docker run -d --name godrop --restart always \
 # Debian or Ubuntu: installs the systemd service and creates its user.
 # Download the .deb for your architecture from the releases page:
 # https://github.com/fatihbaltaci/GoDrop/releases/latest
-sudo dpkg -i godrop_1.2.0_linux_amd64.deb
+sudo dpkg -i godrop_1.2.1_linux_amd64.deb
 
 # Fedora, RHEL or openSUSE
-sudo rpm -i godrop_1.2.0_linux_amd64.rpm
+sudo rpm -i godrop_1.2.1_linux_amd64.rpm
 
 # From source (Go 1.26+). Binaries built this way send no telemetry at all.
 go install github.com/fatihbaltaci/GoDrop/cmd/godrop@latest
@@ -100,7 +100,7 @@ artefact carries [signed build
 provenance](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations):
 
 ```bash
-gh attestation verify godrop_1.2.0_linux_amd64.tar.gz --repo fatihbaltaci/GoDrop
+gh attestation verify godrop_1.2.1_linux_amd64.tar.gz --repo fatihbaltaci/GoDrop
 ```
 
 ## Guided setup
@@ -108,7 +108,7 @@ gh attestation verify godrop_1.2.0_linux_amd64.tar.gz --repo fatihbaltaci/GoDrop
 ```console
 $ godrop init
 
-  GoDrop 1.2.0 setup
+  GoDrop 1.2.1 setup
   Upload a file, get a hard-to-guess URL.
 
   Public address
@@ -1076,7 +1076,7 @@ GoDrop sends one anonymous heartbeat per day:
 
 ```json
 {"event":"heartbeat","distinct_id":"a3f19c…",
- "properties":{"version":"1.2.0","os":"linux","arch":"arm64","deploy":"docker"}}
+ "properties":{"version":"1.2.1","os":"linux","arch":"arm64","deploy":"docker"}}
 ```
 
 That is the entire payload: no file names, no counts, no addresses, no base
