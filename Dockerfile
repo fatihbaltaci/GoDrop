@@ -44,6 +44,10 @@ RUN mkdir -p /data && chown 65532:65532 /data && chmod 700 /data
 
 FROM gcr.io/distroless/static-debian12:nonroot
 
+# How the MCP registry knows this image is the one server.json describes: it
+# reads the label and refuses the entry unless it names the same server.
+LABEL io.modelcontextprotocol.server.name="io.github.fatihbaltaci/godrop"
+
 COPY --from=build /godrop /godrop
 # --chmod as well as --chown: COPY creates the destination directory with the
 # default 0755 whatever the source mode was, and docker seeds a fresh named

@@ -1,0 +1,77 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.fatihbaltaci/godrop",
+  "title": "GoDrop",
+  "description": "Self-hosted file host: upload a file, get a public URL an agent can paste into a pull request.",
+  "version": "1.2.6",
+  "websiteUrl": "https://godrop.sh",
+  "repository": {
+    "url": "https://github.com/fatihbaltaci/GoDrop",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/fatihbaltaci/godrop:1.2.6",
+      "version": "1.2.6",
+      "runtimeHint": "docker",
+      "transport": {
+        "type": "stdio"
+      },
+      "runtimeArguments": [
+        {
+          "type": "positional",
+          "value": "run",
+          "valueHint": "run"
+        },
+        {
+          "type": "named",
+          "name": "-i",
+          "description": "Keep stdin open, which is the whole transport."
+        },
+        {
+          "type": "named",
+          "name": "--rm",
+          "description": "The process holds no state, so nothing is left behind."
+        },
+        {
+          "type": "named",
+          "name": "-e",
+          "value": "GODROP_URL",
+          "isRepeated": true,
+          "description": "Where your instance answers."
+        },
+        {
+          "type": "named",
+          "name": "-e",
+          "value": "GODROP_TOKEN",
+          "isRepeated": true,
+          "description": "The token that authorises uploads."
+        }
+      ],
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp",
+          "valueHint": "mcp",
+          "description": "Serve MCP on stdin and stdout instead of starting a server."
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "GODROP_URL",
+          "description": "The base URL of the GoDrop you host, such as https://files.example.com.",
+          "isRequired": true,
+          "format": "string"
+        },
+        {
+          "name": "GODROP_TOKEN",
+          "description": "An API token from that instance: godrop token create --name mcp.",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}

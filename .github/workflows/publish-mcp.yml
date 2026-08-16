@@ -1,0 +1,47 @@
+name: MCP registry
+
+# The registry is how a client finds a server without being told where to look.
+# It is published on its own rather than from the release: the entry it accepts
+# points at an image tag, so the image has to exist first, and a registry that
+# is having a bad afternoon must not be able to fail a release that is already
+# on disk everywhere else.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Released version to publish, without the leading v"
+        required: true
+
+permissions:
+  contents: read
+  id-token: write # OIDC, so there is no token to store
+
+jobs:
+  publish:
+    name: Publish server.json
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Name this release in server.json
+        run: |
+          # The committed file names the last release. What is being published
+          # is the truth, and the image tag has to follow it.
+          jq --arg v "${{ inputs.version }}" \
+            '.version = $v | .packages[0].version = $v
+             | .packages[0].identifier = "ghcr.io/${{ github.repository_owner }}/godrop:" + $v' \
+            server.json > server.next.json
+          mv server.next.json server.json
+
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" \
+            | tar xz mcp-publisher
+
+      # The registry checks the claim by reading the
+      # io.modelcontextprotocol.server.name label off the image, so this fails
+      # loudly if the tag being published is not one that carries it.
+      - name: Publish
+        run: |
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish
