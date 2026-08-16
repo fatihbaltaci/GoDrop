@@ -9,11 +9,8 @@ import (
 )
 
 // SampleName is the picture setup leaves next to the configuration, so that
-// the first command it prints is one that works.
-//
-// An example that says file=@photo.jpg is an example that fails: the reader
-// has no photo.jpg, and the first thing they learn about GoDrop is an error
-// from curl. This is the file that example points at.
+// the first command it prints is one that works: an example can only be
+// pasted if the file it names exists, and this is that file.
 const SampleName = "sample.png"
 
 // The mark, in the proportions of site/logo.svg: a circle with a spire on top

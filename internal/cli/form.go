@@ -15,9 +15,8 @@ import (
 // One form, not one per question, and the reason is not tidiness. Every
 // Bubble Tea program asks the terminal what colour its background is; the
 // reply arrives as input, and with a program per question it lands in the
-// next question's field, which is why answering used to take two presses of
-// enter and sometimes left an escape sequence in the box. One program asks
-// once.
+// next question's field, eating a keypress and leaving an escape sequence in
+// the box. One program asks once.
 //
 // The questions come from wizard.Questions(), the same list the non
 // interactive path walks, so the two cannot ask different things.

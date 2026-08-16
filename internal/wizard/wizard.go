@@ -91,10 +91,10 @@ func AdvancedLimits(a Answers) bool { return a.Limits == LimitsAdvanced }
 
 // LimitsOptions names both paths and says what the recommended one contains.
 //
-// This used to be "use the recommended limits?" with a yes and a no, which
-// asks the operator to agree to values it does not show and hides the fact
-// that "no" means four more questions. A choice between two named routes,
-// each summarised, is the same decision without the guessing.
+// A yes/no would ask the operator to agree to values it does not show, and
+// would hide the fact that one of the two answers opens four more questions.
+// Two named routes, each summarised, is the same decision without the
+// guessing.
 func LimitsOptions(a Answers) []Option {
 	quota := a.MaxTotalSize
 	if quota == "" {

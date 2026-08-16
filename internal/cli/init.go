@@ -76,10 +76,9 @@ are skipped automatically when there is no terminal.`,
 					return err
 				}
 				answers = collected
-				// Starting it is not a question any more. Nobody sets a
-				// service up in order to leave it stopped, and the check that
-				// follows is the only thing that proves the answers were
-				// right. --start=false is still honoured for the rare case.
+				// Nobody sets a service up in order to leave it stopped, and
+				// starting it is what proves the answers were right, so it is
+				// not a question. --start=false is there for the rare case.
 				answers.Start = !cmd.Flags().Changed("start") || start
 				prompter = newInteractivePrompter(out)
 				echoAnswers(out, answers)
@@ -484,9 +483,9 @@ func printFinish(out *output, a wizard.Answers, outDir string) {
 	out.command("GODROP_TOKEN=" + a.Token)
 	out.printf("\n  It can learn the rest by itself: %s/llms.txt\n", base)
 
-	// The heartbeat is told, not asked. A yes/no in the middle of setup buys
-	// nothing that this cannot: it says exactly what leaves the machine, and
-	// the command that stops it is right there to copy.
+	// The heartbeat is told, not asked. This says exactly what leaves the
+	// machine and gives the command that stops it, which is everything a
+	// yes/no in the middle of the questions could offer.
 	if a.Telemetry {
 		out.heading("Anonymous heartbeat")
 		out.skip("once a day: {install_id, version, os, arch, deploy}")

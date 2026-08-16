@@ -159,7 +159,7 @@ setting them yourself. Everything the answers depend on is checked before a
 single file is written, so a setup that cannot work says so at the start rather
 than at the end, and the service is started and verified here rather than left
 as a command to paste. The picture is there so that the first command you paste
-uploads something, instead of telling you that `photo.jpg` does not exist.
+uploads a real file.
 
 Answering "GoDrop gets one from Let's Encrypt" is all HTTPS takes: it obtains
 the certificate itself and renews it, so there is no proxy to install and

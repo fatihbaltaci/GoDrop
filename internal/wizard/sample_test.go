@@ -30,7 +30,7 @@ func TestSampleImageIsAPictureOfTheMark(t *testing.T) {
 		t.Error("the drop and the background came out the same colour")
 	}
 	r, g, b, _ := middle.RGBA()
-	if !(b > r && b > g) {
+	if b <= r || b <= g {
 		t.Errorf("the middle of the drop is %v, want the blue of the mark", middle)
 	}
 }

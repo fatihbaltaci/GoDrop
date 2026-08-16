@@ -179,9 +179,9 @@ func checkTooling(ctx context.Context, out *output, a wizard.Answers) {
 // checkPort will not let setup write a configuration that cannot start.
 //
 // Setup starts the service at the end, so a port somebody else already holds
-// is not a warning: it is that failure, arriving a minute early and with
-// nothing written yet. When there is somebody to ask, the next free port is
-// offered rather than the whole conversation thrown away.
+// is not a warning: it is the failure that start would hit, arriving while
+// nothing has been written yet. When there is somebody to ask, the next free
+// port is offered rather than the whole conversation thrown away.
 func checkPort(out *output, p wizard.Prompter, a *wizard.Answers, canAsk bool) error {
 	port := wizard.ListenPort(*a)
 	if port == "" {
