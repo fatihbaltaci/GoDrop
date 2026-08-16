@@ -195,11 +195,11 @@ func printInstallation(ctx context.Context, out *output, a wizard.Answers, dir, 
 // tokenCommand is how this installation makes another token. Where the token
 // file is decides it: a compose deployment keeps it in a volume only the
 // container can reach, so the command has to go through docker.
-func tokenCommand(dir, deployment, dataDir string) string {
-	if deployment == wizard.DeployCompose {
-		return "docker compose --project-directory " + dir + " run --rm godrop token create --name claude-code"
-	}
-	if dataDir == "" {
+func tokenCommand(_, deployment, dataDir string) string {
+	// A compose installation keeps the token file in its volume, and the
+	// command reaches it there by itself, so there is one command whatever
+	// the deployment is.
+	if dataDir == "" || deployment == wizard.DeployCompose {
 		return godropCommand() + " token create --name claude-code"
 	}
 	return godropCommand() + " token create --data-dir " + dataDir + " --name claude-code"
@@ -281,7 +281,11 @@ func composeContainer(ctx context.Context, dir string) (name, storage string) {
 // answersFromEnv reads back the few values the verification needs from the
 // .env setup wrote: where the service answers, and a token to talk to it with.
 func answersFromEnv(dir string) wizard.Answers {
-	values := readEnvFile(filepath.Join(dir, ".env"))
+	return answersFrom(readEnvFile(filepath.Join(dir, ".env")))
+}
+
+// answersFrom is the same, from values already read.
+func answersFrom(values map[string]string) wizard.Answers {
 	a := wizard.Answers{
 		BaseURL: values["GODROP_BASE_URL"],
 		Port:    strings.TrimPrefix(values["GODROP_ADDR"], ":"),

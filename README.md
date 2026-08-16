@@ -212,6 +212,14 @@ nothing to configure. The question only offers it for a name Let's Encrypt can
 actually issue for, and the listen port question disappears, because serving
 TLS means 443.
 
+Changing your mind later is the same command with the setting on it. The token,
+the uploads and every answer you do not mention stay where they are, and the
+service restarts into the change:
+
+```bash
+godrop init --base-url https://files.example.com   # or --port, --retention, --tls…
+```
+
 Every question shows its default and can be answered with a flag instead, so CI
 and agents run the same code path without a terminal. Prompts are skipped
 automatically when there is no TTY; `--no-input` makes that explicit:

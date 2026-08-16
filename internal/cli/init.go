@@ -74,6 +74,15 @@ are skipped automatically when there is no terminal.`,
 			// answers. --force is how you start over deliberately.
 			if !force && installedAt(outDir) {
 				out.success("GoDrop is already set up in %s", outDir)
+				// A setting named on the command line is an instruction to
+				// change it, not something to ignore on the way to an update.
+				changes, err := changedSettings(cmd)
+				if err != nil {
+					return err
+				}
+				if len(changes) > 0 {
+					return reconfigure(cmd, out, build, outDir, changes)
+				}
 				out.skip("to configure it from scratch instead: godrop init --force")
 				return upgrade(cmd.Context(), out, build, outDir)
 			}

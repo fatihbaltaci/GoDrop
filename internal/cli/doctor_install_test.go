@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fatihbaltaci/GoDrop/internal/wizard"
 )
@@ -16,6 +17,12 @@ import (
 // which is where the commands look for one.
 func installAt(t *testing.T, deployment, baseURL string) string {
 	t.Helper()
+	// Commands that end in the same verification setup runs have nothing to
+	// wait for here: no service is listening.
+	original := healthWait
+	healthWait = 10 * time.Millisecond
+	t.Cleanup(func() { healthWait = original })
+
 	home := t.TempDir()
 	setHome(t, home)
 	dir := configDirForTest(t)
@@ -179,9 +186,11 @@ func TestTheEnvironmentWinsOverTheGeneratedFile(t *testing.T) {
 
 func TestTheTokenCommandFitsTheDeployment(t *testing.T) {
 	t.Parallel()
+	// Even where the file is in a volume, the command is the same one: it
+	// reaches the file there by itself.
 	compose := tokenCommand("/home/you/.godrop", wizard.DeployCompose, "")
-	if !strings.Contains(compose, "docker compose --project-directory /home/you/.godrop run --rm godrop token create") {
-		t.Errorf("compose keeps its tokens in a volume: %q", compose)
+	if !strings.HasSuffix(compose, "token create --name claude-code") || strings.Contains(compose, "docker") {
+		t.Errorf("compose = %q", compose)
 	}
 	local := tokenCommand("/home/you/.godrop", wizard.DeploySystemd, "/var/lib/godrop")
 	if !strings.Contains(local, "token create --data-dir /var/lib/godrop --name claude-code") {
