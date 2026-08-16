@@ -381,6 +381,11 @@ $ godrop token list
 $ godrop token revoke ci                    # effective within a second
 ```
 
+Every one of these commands, and `godrop telemetry`, `godrop health` and
+`godrop uninstall` with them, works on the installation this machine has, not
+on the shell's idea of one: on a compose deployment they run where the files
+are, in the service's own container.
+
 Tokens are stored as **SHA-256 digests** in `<data-dir>/tokens.json` (mode
 `0600`). A leaked file cannot be turned back into a working token, and a backup
 restored onto another machine keeps working, which machine-bound encryption

@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/fatihbaltaci/GoDrop/internal/config"
+	"github.com/fatihbaltaci/GoDrop/internal/wizard"
 )
 
 // newHealthCmd exists so the container image can declare a HEALTHCHECK without
@@ -62,6 +63,14 @@ func newHealthCmd() *cobra.Command {
 // the port and a health check that misses that reports a healthy server as
 // dead for ever.
 func localHealthURL() (target string, insecure bool) {
+	// A shell on the server has none of the service's environment. The
+	// installation knows where it answers, and inside the container, where
+	// this is the HEALTHCHECK, there is no installation to find and the
+	// environment below is the right answer.
+	if dir := installationDir(); installedAt(dir) {
+		base := wizard.PublicAddress(answersFromEnv(dir))
+		return strings.TrimRight(base, "/") + "/healthz", strings.HasPrefix(base, "https://")
+	}
 	mode, _ := config.ParseTLSMode(os.Getenv("GODROP_TLS"),
 		os.Getenv("GODROP_TLS_CERT") != "" || os.Getenv("GODROP_TLS_KEY") != "")
 	scheme, fallback := "http", config.DefaultAddr

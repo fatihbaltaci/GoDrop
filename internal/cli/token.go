@@ -60,11 +60,11 @@ func dataDir(cmd *cobra.Command) string {
 	return config.DefaultDataDir
 }
 
-// tokenSource is where this machine's tokens are, which is not always where
-// the shell is standing. Setup writes a .env that a prompt has never sourced,
-// and a compose deployment keeps the token file in a volume that only the
-// container can reach.
-type tokenSource struct {
+// installation is where this machine's GoDrop keeps its files, which is not
+// always where the shell is standing. Setup writes a .env that a prompt has
+// never sourced, and a compose deployment keeps the data directory in a volume
+// that only the container can reach.
+type installation struct {
 	dir string   // the data directory holding tokens.json
 	env []string // tokens from GODROP_TOKENS, or from the generated .env
 	// project is the compose directory when the token file is in a volume,
@@ -78,11 +78,12 @@ type tokenSource struct {
 }
 
 // containerised reports that the token file is inside the service's container.
-func (s tokenSource) containerised() bool { return s.project != "" }
+func (s installation) containerised() bool { return s.project != "" }
 
-// resolveTokens works out which of those applies.
-func resolveTokens(cmd *cobra.Command) tokenSource {
-	src := tokenSource{dir: dataDir(cmd), env: config.ParseTokens(os.Getenv("GODROP_TOKENS"))}
+// locate works out which of those applies. An explicit --data-dir or
+// GODROP_DATA_DIR is the operator saying where to look, and is left alone.
+func locate(cmd *cobra.Command) installation {
+	src := installation{dir: dataDir(cmd), env: config.ParseTokens(os.Getenv("GODROP_TOKENS"))}
 	flagged, _ := cmd.Flags().GetString("data-dir")
 	if flagged != "" || os.Getenv("GODROP_DATA_DIR") != "" || len(src.env) > 0 {
 		// The operator has said where to look, one way or another.
@@ -109,12 +110,12 @@ func resolveTokens(cmd *cobra.Command) tokenSource {
 	return src
 }
 
-func (s tokenSource) store() (*tokens.Store, error) {
+func (s installation) store() (*tokens.Store, error) {
 	return tokens.New(tokens.Path(s.dir), s.env)
 }
 
 // run carries out a token command where the token file actually is.
-func (s tokenSource) run(ctx context.Context, args ...string) ([]byte, error) {
+func (s installation) run(ctx context.Context, args ...string) ([]byte, error) {
 	return composeRun(ctx, s.project, args...)
 }
 
@@ -125,7 +126,7 @@ func newTokenCreateCmd() *cobra.Command {
 		Short: "Create a new API token",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			src := resolveTokens(cmd)
+			src := locate(cmd)
 			out := newOutput(cmd)
 			if src.containerised() {
 				raw, err := src.run(cmd.Context(), "token", "create", "--name", name, "--json")
@@ -195,7 +196,7 @@ func newTokenListCmd() *cobra.Command {
 		Short: "List tokens (names only, values are not recoverable)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			src := resolveTokens(cmd)
+			src := locate(cmd)
 			out := newOutput(cmd)
 			if src.containerised() {
 				raw, err := src.run(cmd.Context(), "token", "list", "--json")
@@ -300,7 +301,7 @@ func newTokenRevokeCmd() *cobra.Command {
 		Short: "Revoke a token by name",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			src := resolveTokens(cmd)
+			src := locate(cmd)
 			out := newOutput(cmd)
 			if src.containerised() {
 				if _, err := src.run(cmd.Context(), "token", "revoke", args[0], "--json"); err != nil {

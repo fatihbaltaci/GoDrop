@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -38,11 +39,18 @@ func newTelemetrySetCmd(name string, disable bool, short string) *cobra.Command 
 		Short: short,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			dir := dataDir(cmd)
-			if err := telemetry.SetDisabled(dir, disable); err != nil {
+			src := locate(cmd)
+			out := newOutput(cmd)
+			// The marker lives next to the uploads, so on a compose
+			// installation it is inside the volume: writing one here would
+			// switch off a heartbeat nothing is sending.
+			if src.containerised() {
+				if _, err := src.run(cmd.Context(), "telemetry", name, "--json"); err != nil {
+					return err
+				}
+			} else if err := telemetry.SetDisabled(src.dir, disable); err != nil {
 				return err
 			}
-			out := newOutput(cmd)
 			if out.json {
 				return out.emit(map[string]any{"telemetry": name})
 			}
@@ -56,6 +64,36 @@ func newTelemetrySetCmd(name string, disable bool, short string) *cobra.Command 
 	}
 }
 
+// printTelemetryStatus renders what the container answered, in the shape a
+// local installation prints.
+func printTelemetryStatus(out *output, raw []byte) error {
+	var status struct {
+		State    string          `json:"state"`
+		Reason   string          `json:"reason"`
+		Interval string          `json:"interval"`
+		Payload  json.RawMessage `json:"payload"`
+	}
+	if err := json.Unmarshal(raw, &status); err != nil {
+		return fmt.Errorf("could not read the answer from the container: %w", err)
+	}
+	out.heading("Telemetry: " + status.State)
+	if status.Reason != "" {
+		out.skip("%s", status.Reason)
+	}
+	if len(status.Payload) == 0 || string(status.Payload) == "null" {
+		return nil
+	}
+	// The payload arrived inside a document that has already parsed, so
+	// laying it out again cannot fail.
+	var pretty bytes.Buffer
+	_ = json.Indent(&pretty, status.Payload, "  ", "  ")
+	out.printf("\n  Sent once every %s:\n\n  %s\n", status.Interval, pretty.String())
+	if status.State == "on" {
+		out.printf("\n  Turn it off with: godrop telemetry off\n")
+	}
+	return nil
+}
+
 func newTelemetryStatusCmd(build Build) *cobra.Command {
 	var send bool
 	cmd := &cobra.Command{
@@ -63,8 +101,22 @@ func newTelemetryStatusCmd(build Build) *cobra.Command {
 		Short: "Show whether telemetry is active and what would be sent",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			dir := dataDir(cmd)
+			src := locate(cmd)
 			out := newOutput(cmd)
+			// The container is the one that would do the sending, so it is the
+			// one that knows whether it is going to.
+			if src.containerised() {
+				raw, err := src.run(cmd.Context(), "telemetry", "status", "--json")
+				if err != nil {
+					return err
+				}
+				if out.json {
+					_, err := out.w.Write(raw)
+					return err
+				}
+				return printTelemetryStatus(out, raw)
+			}
+			dir := src.dir
 			optedOut := telemetry.Disabled(dir)
 			compiled := build.PostHogKey != ""
 

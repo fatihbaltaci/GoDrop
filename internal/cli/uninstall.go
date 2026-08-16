@@ -46,6 +46,10 @@ command that removes it properly.`,
 type removal struct {
 	Path string `json:"path"`
 	What string `json:"what"`
+	// compose marks the entry docker owns rather than the filesystem: the
+	// container, its network and, with --purge, the volume the uploads are on.
+	// Path is then the project directory, which is how docker is told which.
+	compose bool `json:"-"`
 }
 
 func runUninstall(ctx context.Context, out *output, build Build, purge, yes bool) error {
@@ -56,6 +60,9 @@ func runUninstall(ctx context.Context, out *output, build Build, purge, yes bool
 			manager.Name, manager.Remove)
 	}
 
+	// What is installed has to be read before any of it is removed: after the
+	// configuration directory has gone, nothing can say what it held.
+	deployment := deploymentAt(installationDir())
 	items := plannedRemovals(purge)
 	if len(items) == 0 {
 		out.success("nothing to remove")
@@ -88,15 +95,37 @@ func runUninstall(ctx context.Context, out *output, build Build, purge, yes bool
 
 	out.heading("Removing")
 	for _, item := range items {
+		if item.compose {
+			if err := composeDown(ctx, item.Path, purge); err != nil {
+				out.fail("%s: %v", item.What, err)
+				continue
+			}
+			out.success("%s", item.What)
+			continue
+		}
 		if err := os.RemoveAll(item.Path); err != nil {
 			out.fail("%s: %v", item.Path, err)
 			continue
 		}
 		out.success("%s", item.Path)
 	}
-	out.printf("\n  Stop the service yourself if it is still running:\n")
-	out.command("docker compose down    # or: sudo systemctl disable --now godrop")
-	_ = ctx
+	if deployment == wizard.DeploySystemd {
+		out.printf("\n  The unit is still installed; removing it needs root:\n")
+		out.command("sudo systemctl disable --now godrop && sudo rm /etc/systemd/system/godrop.service")
+	}
+	return nil
+}
+
+// composeDown stops the service and takes its container and network with it.
+// The volume, and so the uploads, only go when they were asked for.
+func composeDown(ctx context.Context, project string, purge bool) error {
+	args := []string{"compose", "--project-directory", project, "down"}
+	if purge {
+		args = append(args, "--volumes")
+	}
+	if err := runCommand(ctx, "docker", args...); err != nil {
+		return withStderr(err)
+	}
 	return nil
 }
 
@@ -114,14 +143,26 @@ func plannedRemovals(purge bool) []removal {
 			return
 		}
 		for _, existing := range items {
-			if existing.Path == path {
+			// The compose entry shares the configuration directory's path: it
+			// is the project directory docker is told about, not a file to
+			// delete, so it does not stand in for one.
+			if existing.Path == path && !existing.compose {
 				return
 			}
 		}
 		items = append(items, removal{Path: path, What: what})
 	}
 
-	configDir := wizard.ConfigDir(runtime.GOOS, os.Getenv, os.Geteuid() == 0)
+	configDir := installationDir()
+	// Docker first: the compose file that says what to stop is in the
+	// configuration directory a few lines below.
+	if installedAt(configDir) && deploymentAt(configDir) == wizard.DeployCompose {
+		what := "the container and its network"
+		if purge {
+			what = "the container, its network and the volume with the uploads"
+		}
+		items = append(items, removal{Path: configDir, What: what, compose: true})
+	}
 	add(configDir, "generated configuration")
 	// A docker-compose.yml in the working directory may well be somebody
 	// else's, and deleting a file this program did not write is not something

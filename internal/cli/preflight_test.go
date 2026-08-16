@@ -34,6 +34,23 @@ func TestMain(m *testing.M) {
 			panic(err)
 		}
 	}
+	// Uninstall removes "the godrop binary", which without this is the test
+	// binary itself: the first test to run it takes the executable out from
+	// under every test after it. This stands in for it, and comes back after
+	// each removal so that the next test finds one too.
+	osExecutable = func() (string, error) {
+		path := filepath.Join(home, "bin", "godrop")
+		if _, err := os.Stat(path); err != nil {
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				return "", err
+			}
+			if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o600); err != nil {
+				return "", err
+			}
+		}
+		return path, nil
+	}
+
 	code := m.Run()
 	_ = os.RemoveAll(home)
 	os.Exit(code)
