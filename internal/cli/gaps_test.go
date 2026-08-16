@@ -304,12 +304,35 @@ func TestMaybeStartRunsCompose(t *testing.T) {
 	}
 }
 
+func TestMaybeStartReportsAFailedUp(t *testing.T) {
+	// A docker whose pull works and whose up does not: the second failure has
+	// its own message, because they are different problems.
+	if runtime.GOOS == "windows" {
+		t.Skip("the stub is a POSIX shell script")
+	}
+	dir := t.TempDir()
+	script := "#!/bin/sh\ncase \"$*\" in *up*) exit 1 ;; esac\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(dir, "docker"), []byte(script), 0o755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+
+	a := wizard.Defaults()
+	a.Start = true
+	err := maybeStart(t.Context(), &output{w: io.Discard}, testBuild(), a, ".")
+	if err == nil || !strings.Contains(err.Error(), "docker compose up failed") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestMaybeStartReportsComposeFailure(t *testing.T) {
 	fakeDocker(t, 1)
 	failing := wizard.Defaults()
 	failing.Start = true
+	// The pull comes first, so that is what a docker which fails at
+	// everything reports.
 	err := maybeStart(t.Context(), &output{w: io.Discard}, testBuild(), failing, ".")
-	if err == nil || !strings.Contains(err.Error(), "docker compose up failed") {
+	if err == nil || !strings.Contains(err.Error(), "docker compose pull failed") {
 		t.Fatalf("err = %v", err)
 	}
 }

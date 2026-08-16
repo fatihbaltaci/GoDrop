@@ -343,7 +343,7 @@ func TestInitPropagatesAStartFailure(t *testing.T) {
 	if code == 0 {
 		t.Error("a failed start should be reported")
 	}
-	if !strings.Contains(stderr, "docker compose up failed") {
+	if !strings.Contains(stderr, "docker compose pull failed") {
 		t.Errorf("stderr = %q", stderr)
 	}
 }

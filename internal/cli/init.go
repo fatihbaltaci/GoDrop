@@ -248,6 +248,12 @@ func maybeStart(ctx context.Context, out *output, build Build, a wizard.Answers,
 			return nil
 		}
 		out.heading("Starting")
+		// Pull first, for the same reason the update path does: `up -d` is
+		// happy with whatever :latest means on this machine already, which on
+		// a machine that has run GoDrop before is an older release.
+		if err := runCommand(ctx, "docker", "compose", "--project-directory", outDir, "pull"); err != nil {
+			return fmt.Errorf("docker compose pull failed: %w", err)
+		}
 		if err := runCommand(ctx, "docker", "compose", "--project-directory", outDir, "up", "-d"); err != nil {
 			return fmt.Errorf("docker compose up failed: %w", err)
 		}
