@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -485,7 +486,7 @@ func TestUninstallListsWhatItWouldRemove(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d", code)
 	}
-	if !strings.Contains(out, config) {
+	if !slices.Contains(removalPaths(t, out), config) {
 		t.Errorf("output should list the configuration directory:\n%s", out)
 	}
 }
@@ -503,14 +504,34 @@ func TestUninstallLeavesFilesAloneWithoutPurge(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d", code)
 	}
-	if strings.Contains(out, data) {
+	if slices.Contains(removalPaths(t, out), data) {
 		t.Errorf("uploads should be kept without --purge:\n%s", out)
 	}
 
 	code, out, _ = run(t, testBuild(), "uninstall", "--purge", "--json")
-	if code != 0 || !strings.Contains(out, data) {
+	if code != 0 || !slices.Contains(removalPaths(t, out), data) {
 		t.Errorf("--purge should include the uploads:\n%s", out)
 	}
+}
+
+// removalPaths reads the paths out of `uninstall --json`. It decodes rather
+// than searching the text: JSON doubles every backslash, so a raw substring
+// match for a Windows path never succeeds.
+func removalPaths(t *testing.T, out string) []string {
+	t.Helper()
+	var doc struct {
+		Removals []struct {
+			Path string `json:"path"`
+		} `json:"removals"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out)
+	}
+	paths := make([]string, 0, len(doc.Removals))
+	for _, r := range doc.Removals {
+		paths = append(paths, r.Path)
+	}
+	return paths
 }
 
 func TestUninstallRemovesWhatItListed(t *testing.T) {
