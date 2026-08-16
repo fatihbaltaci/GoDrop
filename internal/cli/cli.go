@@ -63,6 +63,9 @@ func newRootCmd(build Build) *cobra.Command {
 		Long: `GoDrop is a tiny self-hosted file host.
 
 Start the server with "godrop serve"; the container image does that by itself.`,
+		// --version, because that is what people type. `godrop version` says
+		// more, and both answer.
+		Version:       build.Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args:          cobra.NoArgs,
@@ -74,6 +77,7 @@ Start the server with "godrop serve"; the container image does that by itself.`,
 			return cmd.Help()
 		},
 	}
+	cmd.SetVersionTemplate("godrop {{.Version}}\n")
 	cmd.PersistentFlags().BoolVar(&jsonOut, "json", false, "machine-readable output")
 	cmd.PersistentFlags().Bool("no-color", false, "disable coloured output")
 

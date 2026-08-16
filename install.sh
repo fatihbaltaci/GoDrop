@@ -60,8 +60,21 @@ latest_version() {
 		sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1
 }
 
+# where_godrop_is prints the directory `godrop` already resolves from.
+where_godrop_is() {
+	found=$(command -v godrop 2>/dev/null) || return 1
+	dirname "$found"
+}
+
 choose_bin_dir() {
 	if [ -n "$BIN_DIR" ]; then
+		return
+	fi
+	# An update belongs on top of the installation in use. Installing next to
+	# it instead leaves two binaries and a PATH deciding which of them the word
+	# "godrop" means, which is a confusing way to be out of date.
+	if existing=$(where_godrop_is) && [ -w "$existing" ]; then
+		BIN_DIR="$existing"
 		return
 	fi
 	if [ "$(id -u)" = "0" ] || [ -w /usr/local/bin ] 2>/dev/null; then
@@ -161,6 +174,16 @@ main() {
 
 	printf '\n'
 	"$BIN_DIR/godrop" version
+
+	# An older copy earlier in the PATH answers to the name from now on, and
+	# nothing about the new one would say so.
+	shadow=$(command -v godrop 2>/dev/null || true)
+	if [ -n "$shadow" ] && [ "$shadow" != "$BIN_DIR/godrop" ]; then
+		printf '\n'
+		warn "another godrop is earlier in your PATH: $shadow"
+		say "that is the one that answers when you type godrop"
+		printf '\n      %ssudo rm %s%s   # then the new one takes over\n' "$BOLD" "$shadow" "$RESET"
+	fi
 
 	# Last, so that it is the line still on screen when the wizard starts.
 	if ! on_path "$BIN_DIR"; then

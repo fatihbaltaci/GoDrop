@@ -446,6 +446,7 @@ Flags:
   -h, --help       help for godrop
       --json       machine-readable output
       --no-color   disable coloured output
+  -v, --version    version for godrop
 
 Use "godrop [command] --help" for more information about a command.
 ```

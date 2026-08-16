@@ -30,6 +30,17 @@ func TestExecuteWritesToTheProcessStreams(t *testing.T) {
 	}
 }
 
+func TestVersionFlagAnswersToo(t *testing.T) {
+	// --version is what people type; the subcommand says more and both work.
+	code, out, stderr := run(t, testBuild(), "--version")
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, stderr)
+	}
+	if !strings.Contains(out, testBuild().Version) {
+		t.Errorf("output = %q", out)
+	}
+}
+
 func TestRootWithoutArgumentsExplainsItself(t *testing.T) {
 	// Typing the name of a program is a question. The container image asks for
 	// the server explicitly, with CMD, so nothing depends on this starting one.
