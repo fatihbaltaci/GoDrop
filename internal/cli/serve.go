@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -23,7 +22,6 @@ import (
 	"github.com/fatihbaltaci/GoDrop/internal/telemetry"
 	"github.com/fatihbaltaci/GoDrop/internal/tlsconf"
 	"github.com/fatihbaltaci/GoDrop/internal/tokens"
-	"github.com/fatihbaltaci/GoDrop/internal/wizard"
 )
 
 func newServeCmd(build Build) *cobra.Command {
@@ -73,7 +71,7 @@ func runServe(cmd *cobra.Command, build Build) error {
 		// mean the service is somewhere else, usually a container, and this
 		// would have been a second one. Saying so beats three fixes for a
 		// problem the operator does not have.
-		if dir := wizard.ConfigDir(runtime.GOOS, os.Getenv, os.Geteuid() == 0); installedAt(dir) {
+		if dir := installationDir(); installedAt(dir) {
 			return fmt.Errorf(`no API tokens in this shell's environment, refusing to start with unauthenticated uploads.
 
 GoDrop is already configured in %s, and its service reads that file itself.

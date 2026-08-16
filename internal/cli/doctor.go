@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -71,7 +70,7 @@ of the process list and the shell history:
 			env := os.Getenv
 			inContainer := ""
 			if url == "" {
-				if dir := wizard.ConfigDir(runtime.GOOS, os.Getenv, os.Geteuid() == 0); installedAt(dir) {
+				if dir := installationDir(); installedAt(dir) {
 					a := answersFromEnv(dir)
 					if deploymentAt(dir) == wizard.DeployCompose {
 						// The files are in a volume only the container can

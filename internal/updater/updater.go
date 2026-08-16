@@ -173,6 +173,12 @@ func Update(ctx context.Context, current string, opts Options) (Result, error) {
 	}
 
 	dir := filepath.Dir(target)
+	// What the update needs is the directory, not the file: the swap is a
+	// rename. Checking now saves downloading an archive that has nowhere to
+	// land, and the fix is the same command with sudo in front of it.
+	if err := writable(dir); err != nil {
+		return res, fmt.Errorf("%s is not writable by this user, so the binary cannot be replaced.\n\n  Try:  sudo godrop update", dir)
+	}
 	// The replacement is staged in the directory it will land in, because a
 	// rename is only atomic within one filesystem.
 	staged, sum, err := download(ctx, opts, version, dir)
@@ -198,6 +204,19 @@ func Update(ctx context.Context, current string, opts Options) (Result, error) {
 	}
 	res.Updated = true
 	return res, nil
+}
+
+// writable reports whether a file can be created in dir, which is the only
+// question that matters and the only one the mode bits cannot answer on their
+// own: ownership, ACLs, a read-only mount and SELinux all have a say.
+func writable(dir string) error {
+	f, err := os.CreateTemp(dir, ".godrop-write-*")
+	if err != nil {
+		return err
+	}
+	name := f.Name()
+	_ = f.Close()
+	return os.Remove(name)
 }
 
 // replace moves the staged binary over the installed one and puts the old one

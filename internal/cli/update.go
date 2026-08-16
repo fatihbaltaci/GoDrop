@@ -3,14 +3,11 @@ package cli
 import (
 	"context"
 	"errors"
-	"os"
-	"runtime"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/fatihbaltaci/GoDrop/internal/updater"
-	"github.com/fatihbaltaci/GoDrop/internal/wizard"
 )
 
 // The update command reaches out to GitHub and rewrites a file on disk, which
@@ -92,7 +89,7 @@ restarted. The configuration, the token and the uploads are untouched.`,
 			// This binary is the command line; when the service runs from a
 			// container it is a different copy of GoDrop entirely, and saying
 			// "updated" while it still serves the old release is a lie.
-			dir := wizard.ConfigDir(runtime.GOOS, os.Getenv, os.Geteuid() == 0)
+			dir := installationDir()
 			if !installedAt(dir) {
 				if !res.UpToDate {
 					out.hint("restart the service to run it: systemctl restart godrop")

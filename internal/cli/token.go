@@ -5,7 +5,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -81,7 +80,7 @@ func resolveTokens(cmd *cobra.Command) tokenSource {
 		// The operator has said where to look, one way or another.
 		return src
 	}
-	dir := wizard.ConfigDir(runtime.GOOS, os.Getenv, os.Geteuid() == 0)
+	dir := installationDir()
 	if !installedAt(dir) {
 		return src
 	}

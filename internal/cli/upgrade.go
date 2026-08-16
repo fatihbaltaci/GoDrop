@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/fatihbaltaci/GoDrop/internal/wizard"
@@ -18,6 +20,45 @@ import (
 // installedAt reports whether setup has already written a configuration here.
 func installedAt(dir string) bool {
 	return writtenByGoDrop(filepath.Join(dir, ".env"))
+}
+
+// lookupHome is a seam: the home directory of another user comes from the
+// password database, which a test has no business editing.
+var lookupHome = func(name string) (string, error) {
+	u, err := user.Lookup(name)
+	if err != nil {
+		return "", err
+	}
+	return u.HomeDir, nil
+}
+
+// installationDir is where this machine's configuration is, from the point of
+// view of whoever asked.
+//
+// sudo changes the answer: replacing a binary in /usr/local/bin needs root,
+// but the installation being updated belongs to the person who ran setup, and
+// root's own /etc/godrop is usually empty. Their configuration is the one to
+// act on, not a directory nobody has written to.
+func installationDir() string {
+	dir := wizard.ConfigDir(runtime.GOOS, os.Getenv, os.Geteuid() == 0)
+	if installedAt(dir) {
+		return dir
+	}
+	name := os.Getenv("SUDO_USER")
+	if name == "" {
+		return dir
+	}
+	home, err := lookupHome(name)
+	if err != nil || home == "" {
+		return dir
+	}
+	// Their home is the whole environment that matters here: sudo exists on
+	// the platforms where the configuration directory is derived from it.
+	theirs := wizard.ConfigDir(runtime.GOOS, func(string) string { return home }, false)
+	if installedAt(theirs) {
+		return theirs
+	}
+	return dir
 }
 
 // deploymentAt works out how an existing installation runs, from what setup

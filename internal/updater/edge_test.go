@@ -312,12 +312,34 @@ func TestUpdateCannotStageNextToAnUnwritableBinary(t *testing.T) {
 
 	rel := newRelease(t, "v2.0.0", "NEW")
 	opts := options(t, rel.serve(t), target)
-	if _, err := Update(context.Background(), "1.0.0", opts); err == nil ||
-		!strings.Contains(err.Error(), "cannot write next to the current binary") {
+	// The message names the directory and the command that gets past it,
+	// because "permission denied" on a path nobody typed is not an answer.
+	_, err := Update(context.Background(), "1.0.0", opts)
+	if err == nil || !strings.Contains(err.Error(), "not writable") ||
+		!strings.Contains(err.Error(), "sudo godrop update") || !strings.Contains(err.Error(), dir) {
 		t.Fatalf("err = %v", err)
 	}
 	if data, _ := os.ReadFile(target); string(data) != "OLD" {
 		t.Error("the installed binary was disturbed")
+	}
+}
+
+func TestStagingReportsADirectoryItCannotWriteTo(t *testing.T) {
+	requireStrictPermissions(t)
+	// Update checks the directory before downloading, so this is the race
+	// where it stops being writable in between. The guard stays because the
+	// alternative is a partial file in somebody's bin directory.
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	rel := newRelease(t, "v2.0.0", "NEW")
+	opts := options(t, rel.serve(t), filepath.Join(dir, "godrop"))
+	if _, _, err := download(context.Background(), opts, "v2.0.0", dir); err == nil ||
+		!strings.Contains(err.Error(), "cannot write next to the current binary") {
+		t.Fatalf("err = %v", err)
 	}
 }
 

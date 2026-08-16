@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -97,6 +98,57 @@ func TestAnExplicitDataDirectoryWins(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(another, "tokens.json")); err != nil {
 		t.Errorf("the environment should decide: %v", err)
+	}
+}
+
+func TestSudoFindsTheInstallationOfWhoeverRanSetup(t *testing.T) {
+	// Replacing a binary in /usr/local/bin needs root, but the installation
+	// belongs to the person who ran setup and root's own directory is empty.
+	dir := installAt(t, wizard.DeployCompose, "")
+	home := filepath.Dir(dir)
+
+	original := lookupHome
+	lookupHome = func(name string) (string, error) {
+		if name != "ubuntu" {
+			return "", errAlreadyThere
+		}
+		return home, nil
+	}
+	t.Cleanup(func() { lookupHome = original })
+
+	// Root, whose own configuration directory has nothing in it.
+	setHome(t, t.TempDir())
+	if got := installationDir(); installedAt(got) {
+		t.Fatalf("this test needs an empty configuration directory, got %s", got)
+	}
+	t.Setenv("SUDO_USER", "ubuntu")
+	if got := installationDir(); got != dir {
+		t.Errorf("installationDir = %q, want the one sudo came from (%q)", got, dir)
+	}
+
+	// A user the password database does not know, and one who has never run
+	// setup: both leave the answer where it was.
+	t.Setenv("SUDO_USER", "nobody")
+	if got := installationDir(); installedAt(got) {
+		t.Errorf("installationDir = %q, want no installation", got)
+	}
+	lookupHome = func(string) (string, error) { return t.TempDir(), nil }
+	if got := installationDir(); installedAt(got) {
+		t.Errorf("installationDir = %q, want no installation", got)
+	}
+}
+
+func TestLookingUpAHomeDirectory(t *testing.T) {
+	// The real thing, since the seam above replaces it everywhere else: root
+	// is the one account every unix has.
+	if runtime.GOOS == "windows" {
+		t.Skip("no password database to read")
+	}
+	if home, err := lookupHome("root"); err != nil || home == "" {
+		t.Errorf("lookupHome(root) = %q, %v", home, err)
+	}
+	if _, err := lookupHome("no-such-user-anywhere"); err == nil {
+		t.Error("an unknown account should be reported")
 	}
 }
 
