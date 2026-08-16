@@ -55,6 +55,26 @@ echo "$url"
 The response has one shape whatever was sent, so there is no branching to do.
 The same URL is in the `Location` header, for when there is no JSON parser.
 
+## Put a screenshot in a pull request or an issue
+
+GitHub has no supported API for attaching an image, so upload it here and paste
+the URL: it needs no token to open, and GitHub renders it inline for everyone
+on the thread.
+
+```bash
+url=$(curl -sS -X POST -H "Authorization: Bearer $GODROP_TOKEN" \
+        -H "X-Expires-In: 30d" -F "file=@screenshots/checkout.png" \
+        "$GODROP_URL/upload" | jq -r '.files[0].url')
+
+gh pr comment 42 --body "Checkout, after the fix:
+
+![checkout]($url)"
+```
+
+The same URL works in an issue, a review comment, a commit message or a chat
+message. Add `X-Expires-In` when the picture is only interesting while the pull
+request is open.
+
 ## Upload several files
 
 ```bash

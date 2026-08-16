@@ -112,6 +112,16 @@ file deletes itself when it runs out:
 The response then carries "expires_at" in RFC 3339. Retention is a maximum: a
 request for longer than this instance keeps anything is capped at it.
 
+## Put a link in a pull request
+
+GitHub has no supported API for attaching an image, so upload it here and paste
+the URL: it opens without a token, so GitHub renders it inline for everyone on
+the thread.
+
+    url=$(curl -sS -X POST -H "Authorization: Bearer $GODROP_TOKEN" \
+            -F "file=@screenshot.png" %s/upload | jq -r '.files[0].url')
+    gh pr comment 42 --body "![screenshot]($url)"
+
 ## Upload several files
 
     curl -sS -X POST -H "Authorization: Bearer $GODROP_TOKEN" \
@@ -169,7 +179,7 @@ Returns 204 on success, 404 if it was already gone.
 - Machine-readable schema: %s/openapi.yaml
 `,
 		base, s.version,
-		base, base, base, base, s.cfg.MaxFilesPerRequest, base, base, base,
+		base, base, base, base, base, s.cfg.MaxFilesPerRequest, base, base, base,
 		config.FormatSize(s.cfg.MaxFileSize), s.cfg.MaxFilesPerRequest, quota, retention,
 		base, base, base)
 	return b.String()

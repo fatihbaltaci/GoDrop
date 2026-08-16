@@ -4,7 +4,7 @@
 
 <p align="center">
   <strong>Upload a file, get a hard-to-guess URL.</strong><br>
-  Written in Go: one binary, no database, files on disk.
+  A drop box your coding agents can use: one Go binary, no database, your disk.
 </p>
 
 <p align="center">
@@ -44,6 +44,44 @@ curl -X POST \
 </details>
 
 ---
+
+## Why this exists: screenshots in pull requests
+
+Coding agents write the code, run the tests and open the pull request. Asking
+them for a screenshot is the cheapest way to review the branches you are never
+going to check out and run yourself. They can take one: they start the app,
+drive a browser and capture the page. Then they cannot attach it.
+
+**GitHub has no supported API for attaching an image to a pull request.** The
+web interface takes a drag and drop, and that is the whole of it
+([cli/cli#4228](https://github.com/cli/cli/issues/4228),
+[#1895](https://github.com/cli/cli/issues/1895),
+[#12960](https://github.com/cli/cli/issues/12960) "critical for agentic
+workflows", [community#28219](https://github.com/orgs/community/discussions/28219)).
+What is left is committing binaries into the repository, an undocumented
+upload endpoint that can stop working on any deploy, or a bucket with a policy,
+a key and a bill attached to it.
+
+An agent that can run `curl` can do this instead:
+
+```bash
+URL=$(curl -sS -X POST -H "Authorization: Bearer $GODROP_TOKEN" \
+  -F "file=@login-after-fix.png" $GODROP_URL/upload | jq -r '.files[0].url')
+
+gh pr comment 42 --body "Login page after the fix:
+
+![login]($URL)"
+```
+
+The identifier carries 128 random bits and the URL needs no token to open, so
+GitHub renders it inline for everyone on the thread. The file itself is on your
+own disk, which is where a picture of your unreleased work belongs, and it can
+delete itself: `-H "X-Expires-In: 30d"`.
+
+Nothing about this is specific to screenshots. It is the same three lines for a
+video of a flaky test, a profile, a build log too long for a comment, or a
+generated report. What an agent needs to do it by itself, including a skill it
+can install, is in [For AI agents](#for-ai-agents).
 
 ## Install
 
@@ -186,6 +224,9 @@ macOS or Windows, and the commands it prints use the right shell.
 
 ## The API
 
+Nine endpoints, no SDK, no client library: an agent that can call `curl` has
+everything, and `GET /llms.txt` describes this exact instance in plain text.
+
 | Method | Path | Auth | Purpose |
 | --- | --- | :---: | --- |
 | `POST` | `/upload` | ✅ | multipart, one or more `file` fields |
@@ -260,6 +301,68 @@ many files · `401` bad token · `404` unknown id, or the name's extension does
 not match the stored file · `413` file too large · `415` not multipart · `429`
 rate limited (honour `Retry-After`) · `507` quota full.
 
+## For AI agents
+
+GoDrop is built to be driven by coding agents rather than by a person at a
+browser. Give one a base URL and a token and it can discover the rest:
+
+```bash
+curl https://files.example.com/llms.txt       # the whole API as plain text
+curl https://files.example.com/openapi.yaml   # machine-readable schema
+```
+
+- Every command accepts `--json`, and in that mode prints **nothing but** the
+  document, so parsing never breaks
+- Colour and interactive prompts switch themselves off when there is no
+  terminal, so an agent can never get stuck on a form
+- One request per file, no multipart client library, no SDK to keep up to date:
+  `curl` and `jq` are the whole toolchain
+
+```bash
+godrop token create --name claude-code --json | jq -r .token
+godrop doctor --json | jq '.ok'
+```
+
+### Agent skills
+
+GoDrop ships an [agent skill](skills/godrop/SKILL.md): the instructions a
+coding agent needs to upload a file and hand back a link, without being told
+how. Install it with GoDrop itself:
+
+```bash
+godrop skill install --scope user          # available in every project
+godrop skill install                       # or just this repository
+godrop skill install --agent claude        # Claude Code's own directory
+```
+
+Or with the GitHub CLI, which knows where every agent keeps them:
+
+```bash
+gh skill install fatihbaltaci/GoDrop godrop --scope user
+```
+
+The skill holds no secrets. It reads `GODROP_URL` and `GODROP_TOKEN` from the
+environment, so it is safe to commit alongside a project:
+
+```bash
+export GODROP_URL=https://files.example.com
+export GODROP_TOKEN=$(godrop token create --name claude-code --json | jq -r .token)
+```
+
+With those two values in its environment, an agent can finish a pull request
+without anyone opening a browser:
+
+```bash
+# after the agent has captured ./screenshots/checkout.png
+URL=$(curl -sS -X POST -H "Authorization: Bearer $GODROP_TOKEN" \
+  -H "X-Expires-In: 30d" -F "file=@screenshots/checkout.png" \
+  $GODROP_URL/upload | jq -r '.files[0].url')
+
+gh pr comment "$PR" --body "Checkout, after the fix:
+
+![checkout]($URL)"
+```
+
 ## Tokens
 
 ```console
@@ -280,8 +383,16 @@ restored onto another machine keeps working, which machine-bound encryption
 would break for no security gain. A running server notices new and revoked
 tokens without a restart.
 
-`GODROP_TOKENS` still works and is the practical choice on Docker, Fly and
-Railway; both sources are accepted together.
+Give every agent, script and machine its own token: revoking one leaves the
+rest alone, and `LAST USED` is how you find out which of them is still wired
+into something.
+
+There are two places a token can come from, and both are accepted at once.
+`GODROP_TOKENS` in the environment (which is what the generated `.env` holds)
+is the one the service starts with, and the practical choice on Docker, Fly and
+Railway, where there is no file to write. `tokens.json` is what `godrop token
+create` adds to afterwards, and the only one that can be revoked without a
+restart.
 
 ## Command line
 
@@ -1002,52 +1113,6 @@ already has; in Docker, publish `-p 443:443 -p 80:80`.
 A certificate can only be issued for a public name that resolves to this
 machine. `nas.local`, `10.0.0.5` and a Tailscale name are all refused at
 startup, with the reason, rather than failing in a retry loop afterwards.
-
-## For AI agents
-
-GoDrop is built to be driven by coding agents. Give one a base URL and a token
-and it can discover the rest:
-
-```bash
-curl https://files.example.com/llms.txt       # the whole API as plain text
-curl https://files.example.com/openapi.yaml   # machine-readable schema
-```
-
-- Every command accepts `--json`, and in that mode prints **nothing but** the
-  document, so parsing never breaks
-- Colour and interactive prompts switch themselves off when there is no
-  terminal, so an agent can never get stuck on a form
-
-```bash
-godrop token create --name claude-code --json | jq -r .token
-godrop doctor --json | jq '.ok'
-```
-
-### Agent skills
-
-GoDrop ships an [agent skill](skills/godrop/SKILL.md): the instructions a
-coding agent needs to upload a file and hand back a link, without being told
-how. Install it with GoDrop itself:
-
-```bash
-godrop skill install --scope user          # available in every project
-godrop skill install                       # or just this repository
-godrop skill install --agent claude        # Claude Code's own directory
-```
-
-Or with the GitHub CLI, which knows where every agent keeps them:
-
-```bash
-gh skill install fatihbaltaci/GoDrop godrop --scope user
-```
-
-The skill holds no secrets. It reads `GODROP_URL` and `GODROP_TOKEN` from the
-environment, so it is safe to commit alongside a project:
-
-```bash
-export GODROP_URL=https://files.example.com
-export GODROP_TOKEN=$(godrop token create --name claude-code --json | jq -r .token)
-```
 
 ## Security
 
