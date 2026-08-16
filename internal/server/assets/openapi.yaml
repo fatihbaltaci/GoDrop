@@ -6,7 +6,7 @@ info:
     A tiny self-hosted file host. Uploads and deletes require an API token;
     downloads are public. There is no listing endpoint: identifiers carry 128
     bits of entropy and are the only way to reach a file.
-  version: "1.2.6"
+  version: "1.3.0"
   license:
     name: MIT
     identifier: MIT
