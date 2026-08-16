@@ -168,6 +168,16 @@ func checkTooling(ctx context.Context, out *output, a wizard.Answers) {
 			return
 		}
 		out.success("%-22s available", "docker compose")
+		// The plugin answers without a daemon, so this is a separate question,
+		// and on a fresh server the answer is usually "you are not in the
+		// docker group yet". Everything else about this setup needs no root;
+		// that one membership does, once.
+		if err := runQuietly(ctx, "docker", "info"); err != nil {
+			out.warn("%-22s the docker daemon does not answer this user", "docker")
+			out.hint("start it, or join the group once: sudo usermod -aG docker $USER  (then log out and back in)")
+			return
+		}
+		out.success("%-22s reachable", "docker daemon")
 	case wizard.DeploySystemd:
 		if _, err := lookPath("systemctl"); err != nil {
 			out.warn("%-22s not found on this machine", "systemd")

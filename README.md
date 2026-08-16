@@ -92,10 +92,14 @@ curl -fsSL https://godrop.sh/install.sh | sh
 The script picks the right binary for your machine, **verifies its SHA-256
 checksum** against the published `SHA256SUMS`, installs it, and hands over to a
 setup wizard that writes your configuration, creates your first token and
-checks that the internet can actually reach you. It installs into
-`/usr/local/bin` so that `godrop` is on the PATH of the shell you ran it from;
-without root and without sudo it falls back to `~/.local/bin` and says what to
-add to your PATH.
+checks that the internet can actually reach you.
+
+**No root anywhere.** The binary goes to `~/.local/bin`, the configuration to
+`~/.godrop`, and the uploads into a docker volume, so updating and removing
+GoDrop later are the work of the same account. Run it as root, or set
+`GODROP_BIN_DIR=/usr/local/bin`, to install it for everybody instead. The one
+thing that does need root, once, is being in the `docker` group; setup checks
+that before it writes anything.
 
 Other ways:
 

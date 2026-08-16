@@ -56,6 +56,9 @@ type stubTooling struct {
 	mount      string
 	outErr     error
 	inspectErr error
+	// failArgs is the one command that fails, for a machine where most of the
+	// tooling works and one thing does not.
+	failArgs string
 }
 
 func (s *stubTooling) install(t *testing.T) {
@@ -79,7 +82,14 @@ func (s *stubTooling) install(t *testing.T) {
 		return "", errors.New(name + ": not found")
 	}
 	record := func(_ context.Context, name string, args ...string) error {
-		s.ran = append(s.ran, strings.TrimSpace(name+" "+strings.Join(args, " ")))
+		line := strings.TrimSpace(name + " " + strings.Join(args, " "))
+		s.ran = append(s.ran, line)
+		if s.failArgs != "" {
+			if strings.Contains(line, s.failArgs) {
+				return errors.New(s.failArgs + ": stubbed failure")
+			}
+			return nil
+		}
 		return s.runErr
 	}
 	runCommand, runQuietly = record, record
@@ -230,17 +240,22 @@ func TestPreflightReportsMissingTooling(t *testing.T) {
 		deployment string
 		found      map[string]bool
 		runErr     error
+		failArgs   string
 		want       string
 	}{
-		{"no docker", wizard.DeployCompose, map[string]bool{}, nil, "docker"},
+		{"no docker", wizard.DeployCompose, map[string]bool{}, nil, "", "docker"},
 		{"no compose plugin", wizard.DeployCompose, map[string]bool{"docker": true},
-			errors.New("unknown command"), "`docker compose` is not"},
-		{"no systemd", wizard.DeploySystemd, map[string]bool{}, nil, "systemd"},
-		{"systemd needs root", wizard.DeploySystemd, map[string]bool{"systemctl": true}, nil, "needs sudo"},
+			errors.New("unknown command"), "", "`docker compose` is not"},
+		// The plugin is there and answers; the daemon is the separate question,
+		// and on a fresh server the answer is the docker group.
+		{"daemon not reachable", wizard.DeployCompose, map[string]bool{"docker": true},
+			nil, "docker info", "usermod -aG docker"},
+		{"no systemd", wizard.DeploySystemd, map[string]bool{}, nil, "", "systemd"},
+		{"systemd needs root", wizard.DeploySystemd, map[string]bool{"systemctl": true}, nil, "", "needs sudo"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			tooling := &stubTooling{found: tc.found, runErr: tc.runErr}
+			tooling := &stubTooling{found: tc.found, runErr: tc.runErr, failArgs: tc.failArgs}
 			tooling.install(t)
 			var buf strings.Builder
 			a := answersIn(t, tc.deployment)

@@ -9,7 +9,8 @@
 #
 # Environment:
 #   GODROP_VERSION   version to install (default: the latest release)
-#   GODROP_BIN_DIR   install location (default: /usr/local/bin, or ~/.local/bin)
+#   GODROP_BIN_DIR   install location (default: ~/.local/bin, or /usr/local/bin
+#                    when run as root); needs no sudo unless you name one
 #   GODROP_NO_INIT   set to 1 to skip the setup wizard
 set -eu
 
@@ -63,17 +64,13 @@ choose_bin_dir() {
 	if [ -n "$BIN_DIR" ]; then
 		return
 	fi
-	if [ -w /usr/local/bin ] 2>/dev/null || [ "$(id -u)" = "0" ]; then
+	if [ "$(id -u)" = "0" ] || [ -w /usr/local/bin ] 2>/dev/null; then
 		BIN_DIR=/usr/local/bin
 		return
 	fi
-	# /usr/local/bin is on everybody's PATH. ~/.local/bin often is not: Ubuntu
-	# adds it at login and only if it already exists, so a binary installed
-	# there is one this very shell cannot find. sudo is worth it for that.
-	if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
-		BIN_DIR=/usr/local/bin
-		return
-	fi
+	# No root, and none asked for: a home directory install is one this account
+	# owns, so updating and removing GoDrop later need nothing either. Set
+	# GODROP_BIN_DIR=/usr/local/bin to put it where every user can see it.
 	BIN_DIR="$HOME/.local/bin"
 }
 
@@ -152,11 +149,13 @@ main() {
 	mkdir -p "$BIN_DIR" 2>/dev/null || true
 	if [ -w "$BIN_DIR" ]; then
 		mv "$tmp/godrop" "$BIN_DIR/godrop"
-	elif command -v sudo >/dev/null 2>&1; then
+	elif [ -n "${GODROP_BIN_DIR:-}" ] && command -v sudo >/dev/null 2>&1; then
+		# Only where the destination was asked for by name: escalating on a
+		# directory this script picked would be doing it behind your back.
 		say "installing to $BIN_DIR (needs sudo)"
 		sudo mv "$tmp/godrop" "$BIN_DIR/godrop"
 	else
-		die "$BIN_DIR is not writable and sudo is unavailable; set GODROP_BIN_DIR"
+		die "$BIN_DIR is not writable; set GODROP_BIN_DIR to somewhere it is"
 	fi
 	ok "installed $BIN_DIR/godrop"
 
