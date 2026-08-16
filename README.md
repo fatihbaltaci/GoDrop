@@ -375,6 +375,67 @@ gh pr comment "$PR" --body "Checkout, after the fix:
 ![checkout]($URL)"
 ```
 
+### Model Context Protocol
+
+Not every agent has a shell. A desktop assistant, an IDE panel or a workflow
+node can produce a chart, a report or a screenshot and then have nowhere to put
+it, because it cannot run `curl`. For those, GoDrop serves an MCP endpoint at
+`/mcp`, behind the same token as everything else:
+
+```bash
+claude mcp add --transport http godrop https://files.example.com/mcp \
+  --header "Authorization: Bearer $GODROP_TOKEN"
+```
+
+Any client that takes a URL and a header works the same way, whether it is
+configured through a command or through a `mcpServers` block of JSON.
+
+| Tool | What it does |
+| --- | --- |
+| `upload_file` | Stores a file and returns the public URL, with an optional `expires_in` |
+| `delete_file` | Removes a file, given the URL the upload returned |
+| `storage_stats` | What is stored, and the limits this instance enforces |
+
+The endpoint is built on protocol revision `2026-07-28`, the one that took the
+sessions out of MCP: there is no handshake and no session identifier, every
+request carries its own version and capabilities, and the server keeps nothing
+between them. That is the same way the rest of GoDrop works, which is why the
+endpoint is one file and not a dependency.
+
+Clients built on the older revisions still open with a handshake, and they are
+answered as well: the same three tools, and still no session assigned, so there
+is nothing to carry, resume or tear down in either era. Both paths are checked
+against the official MCP Inspector.
+
+Files travel base64 encoded inside JSON, so `upload_file` takes at most 16MB.
+An agent that *can* run a shell should keep using `POST /upload`: it streams,
+it has no size limit beyond the configured one, and it is one request either
+way.
+
+#### Files that are already on the machine
+
+`godrop mcp` is the same protocol over stdin and stdout, for a client that runs
+a command instead of calling a URL:
+
+```json
+{"mcpServers": {"godrop": {"command": "godrop", "args": ["mcp"]}}}
+```
+
+That is the whole configuration. The address and the token come from the
+installation on this machine, so the client is never told a secret, and every
+message is passed through to `/mcp` unchanged, so the tools are the same ones.
+
+It adds one that only works there. `upload_local_file` takes a **path** and
+streams the file, which means no base64, no 16MB ceiling and nothing held in
+memory: a 60MB build artefact goes up in a second and comes back as a URL.
+
+```bash
+godrop mcp --root ~/screenshots   # refuse to read anything outside this
+```
+
+Worth setting when an agent runs unattended: without it the command can read
+any file the user can, which is the point of it and also the risk.
+
 ## Tokens
 
 ```console
@@ -443,6 +504,7 @@ Available Commands:
   health      Probe a running instance (used by the container HEALTHCHECK)
   help        Help about any command
   init        Guided setup: configure, generate a token, start and verify
+  mcp         Serve the Model Context Protocol on stdin and stdout
   serve       Start the HTTP server
   skill       Install the agent skill that teaches a coding agent to use GoDrop
   telemetry   Inspect or change the anonymous heartbeat

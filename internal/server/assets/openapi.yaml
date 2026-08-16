@@ -218,6 +218,81 @@ paths:
                   uptime_s: { type: integer }
                   version: { type: string }
         "401": { $ref: "#/components/responses/Error" }
+  /mcp:
+    post:
+      operationId: mcp
+      summary: Model Context Protocol endpoint
+      description: |
+        JSON-RPC 2.0 in an HTTP POST, built on protocol revision `2026-07-28`.
+        That revision has no handshake and no session: every request carries
+        its own protocol version and client capabilities in `params._meta`, and
+        the headers below mirror the body so an intermediary can route without
+        parsing it. A body with no `id` is a notification and is answered with
+        `202`.
+
+        Methods: `server/discover`, `tools/list`, `tools/call`. Tools:
+        `upload_file`, `delete_file`, `storage_stats`. The bytes of an upload
+        arrive base64 encoded, so `upload_file` is capped well below
+        `POST /upload`, which streams.
+
+        A client built on an older revision (`2025-11-25` and earlier) opens
+        with `initialize` instead and is answered in that shape, with `ping`
+        and the same tools. The headers below are then not required, and no
+        session id is assigned in either era.
+      parameters:
+        - name: MCP-Protocol-Version
+          in: header
+          required: false
+          description: >
+            Required on a `2026-07-28` request, where it must equal
+            `params._meta["io.modelcontextprotocol/protocolVersion"]`. An older
+            client names its version here after the handshake, or not at all.
+          schema: { type: string, example: "2026-07-28" }
+        - name: Mcp-Method
+          in: header
+          required: false
+          description: >
+            Required on a `2026-07-28` request, where it must equal the body's
+            `method`.
+          schema: { type: string, example: tools/call }
+        - name: Mcp-Name
+          in: header
+          required: false
+          description: >
+            Required on a `2026-07-28` `tools/call`, where it must equal
+            `params.name`. A value that is not plain ASCII is sent as
+            `=?base64?<encoded>?=`.
+          schema: { type: string, example: upload_file }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/JSONRPCRequest" }
+      responses:
+        "200":
+          description: The JSON-RPC response
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JSONRPCResponse" }
+        "202": { description: A notification was accepted }
+        "400":
+          description: >
+            Malformed message (-32700, -32600), missing per-request metadata
+            (-32602), a header that disagrees with the body (-32020), or an
+            unsupported protocol version (-32022).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JSONRPCResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { description: The Origin header is not allowed to reach this endpoint }
+        "404":
+          description: The method is not implemented (-32601)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JSONRPCResponse" }
+        "405": { description: This revision has no GET stream and no DELETE }
+        "413": { description: The message is larger than this endpoint holds }
+        "429": { $ref: "#/components/responses/Error" }
   /llms.txt:
     get:
       operationId: llmsTxt
@@ -267,6 +342,59 @@ components:
       required: [error]
       properties:
         error: { type: string }
+    JSONRPCRequest:
+      type: object
+      required: [jsonrpc, method]
+      properties:
+        jsonrpc: { type: string, const: "2.0" }
+        id:
+          description: Absent on a notification, and never null.
+          oneOf: [{ type: string }, { type: integer }]
+        method: { type: string, example: tools/call }
+        params:
+          type: object
+          properties:
+            name: { type: string, description: The tool, on tools/call. }
+            arguments: { type: object }
+            _meta:
+              type: object
+              description: >
+                Required on a `2026-07-28` request, and absent from every
+                older one, which is what tells the two apart.
+              required:
+                - io.modelcontextprotocol/protocolVersion
+                - io.modelcontextprotocol/clientCapabilities
+              properties:
+                io.modelcontextprotocol/protocolVersion: { type: string, const: "2026-07-28" }
+                io.modelcontextprotocol/clientCapabilities: { type: object }
+                io.modelcontextprotocol/clientInfo:
+                  type: object
+                  properties:
+                    name: { type: string }
+                    version: { type: string }
+    JSONRPCResponse:
+      type: object
+      required: [jsonrpc]
+      properties:
+        jsonrpc: { type: string, const: "2.0" }
+        id:
+          oneOf: [{ type: string }, { type: integer }]
+        result:
+          type: object
+          required: [resultType]
+          description: >
+            Always carries `resultType`, and the server's identity in
+            `_meta["io.modelcontextprotocol/serverInfo"]`. List results carry
+            the caching hints `ttlMs` and `cacheScope` as well.
+          properties:
+            resultType: { type: string, const: complete }
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: integer }
+            message: { type: string }
+            data: {}
   responses:
     Error:
       description: Error

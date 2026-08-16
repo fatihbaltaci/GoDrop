@@ -95,6 +95,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("DELETE /f/{name}", s.protect(s.handleDelete))
 	mux.HandleFunc("DELETE /f/{id}/{name}", s.protect(s.handleDelete))
 
+	mux.HandleFunc("POST /mcp", s.mcpOrigin(s.protect(s.handleMCP)))
+
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /readyz", s.handleReady)
 	mux.HandleFunc("GET /stats", s.protect(s.handleStats))
@@ -419,12 +421,18 @@ func writeCreated(w http.ResponseWriter, files []fileInfo) {
 
 // storePart writes one uploaded stream and builds its public description.
 func (s *Server) storePart(r *http.Request, filename string, body io.Reader) (fileInfo, *storage.File, error) {
-	ext := SanitizeExt(filename)
 	expires, err := s.expiryFor(r)
 	if err != nil {
 		return fileInfo{}, nil, err
 	}
-	file, err := s.store.CreateWithExpiry(ext, body, s.cfg.MaxFileSize, expires)
+	return s.storeFile(r, filename, body, s.cfg.MaxFileSize, expires)
+}
+
+// storeFile is the part every way in shares: whatever asked for the upload has
+// already worked out how long the file should live and how big it may be.
+func (s *Server) storeFile(r *http.Request, filename string, body io.Reader, maxSize int64, expires time.Time) (fileInfo, *storage.File, error) {
+	ext := SanitizeExt(filename)
+	file, err := s.store.CreateWithExpiry(ext, body, maxSize, expires)
 	if err != nil {
 		return fileInfo{}, nil, err
 	}
@@ -454,7 +462,14 @@ func (s *Server) expiryFor(r *http.Request) (time.Time, error) {
 	if raw == "" {
 		raw = strings.TrimSpace(r.URL.Query().Get("expires"))
 	}
-	if raw == "" {
+	return s.expiryFrom(raw)
+}
+
+// expiryFrom turns a requested lifetime into the moment the file goes away.
+// An empty request means the file lives as long as the instance keeps
+// anything.
+func (s *Server) expiryFrom(raw string) (time.Time, error) {
+	if raw = strings.TrimSpace(raw); raw == "" {
 		return time.Time{}, nil
 	}
 	d, err := config.ParseDuration(raw)

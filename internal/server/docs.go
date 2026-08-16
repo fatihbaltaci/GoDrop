@@ -25,6 +25,7 @@ func (s *Server) usageText(base string) string {
 	fmt.Fprintf(&b, "  PUT    %s/upload/{name}     raw request body     (Bearer token)\n", base)
 	fmt.Fprintf(&b, "  GET    %s/f/{id}/{name}     public, no auth\n", base)
 	fmt.Fprintf(&b, "  DELETE %s/f/{id}/{name}     (Bearer token)\n", base)
+	fmt.Fprintf(&b, "  POST   %s/mcp               MCP %s       (Bearer token)\n", base, mcpVersion)
 	fmt.Fprintf(&b, "  GET    %s/healthz %s/readyz %s/stats\n\n", base, base, base)
 	fmt.Fprintf(&b, "  max file size: %s   max files per request: %d\n",
 		config.FormatSize(s.cfg.MaxFileSize), s.cfg.MaxFilesPerRequest)
@@ -150,6 +151,31 @@ ETags are supported.
 
 Returns 204 on success, 404 if it was already gone.
 
+## Model Context Protocol
+
+An agent that speaks MCP rather than curl has an endpoint of its own, behind
+the same token:
+
+    POST %s/mcp
+
+It is built on revision %s, which has no handshake and no session: every
+request carries its own protocol version and capabilities, so one POST is one
+whole conversation. The methods are server/discover, tools/list and
+tools/call; the tools are upload_file, delete_file and storage_stats.
+
+A client built on an older revision is answered too: it opens with initialize
+and gets the same tools back. No session is ever assigned, in either era, so
+there is nothing to carry, resume or tear down.
+
+A client that runs a command rather than calling a URL has "godrop mcp", which
+is this endpoint over stdin and stdout, plus one tool that only works there:
+upload_local_file takes a path and streams the file, so it has no size limit of
+its own.
+
+Files travel base64 encoded inside the JSON, so upload_file takes at most %s.
+Anything larger belongs in POST /upload, which streams and never holds the
+file in memory.
+
 ## Limits
 
 - max file size: %s
@@ -180,6 +206,7 @@ Returns 204 on success, 404 if it was already gone.
 `,
 		base, s.version,
 		base, base, base, base, base, s.cfg.MaxFilesPerRequest, base, base, base,
+		base, mcpVersion, config.FormatSize(s.mcpUploadLimit()),
 		config.FormatSize(s.cfg.MaxFileSize), s.cfg.MaxFilesPerRequest, quota, retention,
 		base, base, base)
 	return b.String()

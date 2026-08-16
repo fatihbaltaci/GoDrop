@@ -168,6 +168,28 @@ Errors are always `{"error": "..."}`.
 - **Do not put the token in a URL**: it belongs in the header. Never paste it
   into a file you are about to upload.
 
+## For a client that has no shell
+
+An assistant that cannot run `curl` reaches the same instance over the Model
+Context Protocol. Either as a URL:
+
+```bash
+claude mcp add --transport http godrop "$GODROP_URL/mcp" \
+  --header "Authorization: Bearer $GODROP_TOKEN"
+```
+
+Or as a command, which needs no URL and no token in the client's configuration
+because it reads both from the installation on that machine:
+
+```json
+{"mcpServers": {"godrop": {"command": "godrop", "args": ["mcp"]}}}
+```
+
+The tools are `upload_file`, `delete_file` and `storage_stats`, plus
+`upload_local_file` when it is run as a command: that one takes a path and
+streams the file, so it has no size limit of its own. Prefer the commands above
+whenever a shell is available.
+
 ## Running your own
 
 ```bash
