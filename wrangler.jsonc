@@ -18,19 +18,12 @@
     "binding": "ASSETS"
   },
 
-  // The site answers on godrop.sh and nowhere else. Attaching the domain here
-  // rather than in the dashboard means a deploy from a clean checkout ends up
-  // serving the same thing.
+  // No routes: godrop.sh is served by the GoDrop-Hosted Worker now, which
+  // carries the landing page, the dashboard and the API together, along with
+  // the two paths this Worker used to own (/api/check and /install.sh).
   //
-  // workers.dev and preview URLs stay off deliberately: /api/check is
-  // unauthenticated and the rate limiting rule that protects it is a WAF rule
-  // on this zone, which those hostnames would go around.
-  "routes": [
-    {
-      "pattern": "godrop.sh",
-      "custom_domain": true
-    }
-  ],
+  // Nothing here is deleted, so the site can be put back on a hostname by
+  // adding a route again, but nothing is deployed to a live name either.
   "workers_dev": false,
   "preview_urls": false,
 
