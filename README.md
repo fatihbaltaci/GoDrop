@@ -388,11 +388,21 @@ rest alone, and `LAST USED` is how you find out which of them is still wired
 into something.
 
 There are two places a token can come from, and both are accepted at once.
-`GODROP_TOKENS` in the environment (which is what the generated `.env` holds)
-is the one the service starts with, and the practical choice on Docker, Fly and
-Railway, where there is no file to write. `tokens.json` is what `godrop token
-create` adds to afterwards, and the only one that can be revoked without a
-restart.
+`GODROP_TOKENS` in the environment is the one the service starts with: it is
+what the generated `.env` holds, because a compose deployment has no data
+directory on the host to write a file into until the container has made the
+volume, and it is the only thing that works on Fly and Railway. It has no name,
+so it is not a row in `godrop token list`; the list says where it is instead.
+`tokens.json` is what `godrop token create` adds to afterwards, and the only
+kind that can be revoked without a restart.
+
+On a compose installation that file is inside the container, so that is where
+the command has to run. GoDrop says so rather than writing a token nothing
+reads:
+
+```bash
+docker compose --project-directory ~/.godrop run --rm godrop token create --name claude-code
+```
 
 ## Command line
 

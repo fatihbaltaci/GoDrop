@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 
 	"github.com/fatihbaltaci/GoDrop/internal/config"
 	"github.com/fatihbaltaci/GoDrop/internal/tokens"
+	"github.com/fatihbaltaci/GoDrop/internal/wizard"
 )
 
 func newTokenCmd(_ Build) *cobra.Command {
@@ -56,13 +59,50 @@ func dataDir(cmd *cobra.Command) string {
 	return config.DefaultDataDir
 }
 
-func openTokenStore(cmd *cobra.Command) (*tokens.Store, string, error) {
-	dir := dataDir(cmd)
-	store, err := tokens.New(tokens.Path(dir), config.ParseTokens(os.Getenv("GODROP_TOKENS")))
-	if err != nil {
-		return nil, "", err
+// tokenSource is where this machine's tokens are, which is not always where
+// the shell is standing. Setup writes a .env that a prompt has never sourced,
+// and a compose deployment keeps the token file in a volume that only the
+// container can reach.
+type tokenSource struct {
+	dir string   // the data directory holding tokens.json
+	env []string // tokens from GODROP_TOKENS, or from the generated .env
+	// inDocker is the prefix of the command that reaches the token file this
+	// machine cannot, and empty when the file is right here.
+	inDocker string
+	// envFile is where the environment tokens were read from, for saying so.
+	envFile string
+}
+
+// resolveTokens works out which of those applies.
+func resolveTokens(cmd *cobra.Command) tokenSource {
+	src := tokenSource{dir: dataDir(cmd), env: config.ParseTokens(os.Getenv("GODROP_TOKENS"))}
+	flagged, _ := cmd.Flags().GetString("data-dir")
+	if flagged != "" || os.Getenv("GODROP_DATA_DIR") != "" || len(src.env) > 0 {
+		// The operator has said where to look, one way or another.
+		return src
 	}
-	return store, dir, nil
+	dir := wizard.ConfigDir(runtime.GOOS, os.Getenv, os.Geteuid() == 0)
+	if !installedAt(dir) {
+		return src
+	}
+	values := readEnvFile(filepath.Join(dir, ".env"))
+	src.env = config.ParseTokens(values["GODROP_TOKENS"])
+	src.envFile = filepath.Join(dir, ".env")
+	if deploymentAt(dir) == wizard.DeployCompose {
+		// GODROP_DATA_DIR in that file is a path inside the container, so the
+		// token file is out of reach from here and saying which command
+		// reaches it beats writing a token the service will never read.
+		src.inDocker = "docker compose --project-directory " + dir + " run --rm godrop token "
+		return src
+	}
+	if v := strings.TrimSpace(values["GODROP_DATA_DIR"]); v != "" {
+		src.dir = v
+	}
+	return src
+}
+
+func (s tokenSource) store() (*tokens.Store, error) {
+	return tokens.New(tokens.Path(s.dir), s.env)
 }
 
 func newTokenCreateCmd() *cobra.Command {
@@ -72,10 +112,19 @@ func newTokenCreateCmd() *cobra.Command {
 		Short: "Create a new API token",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			store, dir, err := openTokenStore(cmd)
+			src := resolveTokens(cmd)
+			if src.inDocker != "" {
+				return fmt.Errorf(`this installation keeps its token file inside the container, where the service reads it:
+
+  %screate --name %s
+
+A token written here would go to a file nothing is running against`, src.inDocker, tokenName(name))
+			}
+			store, err := src.store()
 			if err != nil {
 				return err
 			}
+			dir := src.dir
 			plain, tok, err := store.Create(name)
 			if err != nil {
 				return err
@@ -107,13 +156,22 @@ func newTokenCreateCmd() *cobra.Command {
 	return cmd
 }
 
+// tokenName is the name to show in an error before the flag has been read.
+func tokenName(name string) string {
+	if name == "" {
+		return "default"
+	}
+	return name
+}
+
 func newTokenListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List tokens (names only, values are not recoverable)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			store, _, err := openTokenStore(cmd)
+			src := resolveTokens(cmd)
+			store, err := src.store()
 			if err != nil {
 				return err
 			}
@@ -134,17 +192,33 @@ func newTokenListCmd() *cobra.Command {
 				out.printf("  No tokens yet. Create one with: godrop token create --name default\n")
 				return nil
 			}
-			out.printf("\n  %-24s %-22s %s\n", "NAME", "CREATED", "LAST USED")
-			for _, t := range list {
-				last := "never"
-				if t.LastUsed != nil {
-					last = humanSince(*t.LastUsed)
+			if len(list) > 0 {
+				out.printf("\n  %-24s %-22s %s\n", "NAME", "CREATED", "LAST USED")
+				for _, t := range list {
+					last := "never"
+					if t.LastUsed != nil {
+						last = humanSince(*t.LastUsed)
+					}
+					out.printf("  %-24s %-22s %s\n", t.Name, humanSince(t.Created), last)
 				}
-				out.printf("  %-24s %-22s %s\n", t.Name, humanSince(t.Created), last)
 			}
+			// The token setup hands over lives in GODROP_TOKENS, because a
+			// compose deployment has no data directory on this machine to
+			// write a file into until the container has created the volume.
+			// It has no name here, which is why it is not a row above.
 			if n := store.EnvCount(); n > 0 {
 				out.printf("\n")
-				out.skip("%d token(s) come from GODROP_TOKENS and are managed in your environment", n)
+				where := "your environment"
+				if src.envFile != "" {
+					where = src.envFile
+				}
+				out.skip("%d token(s) come from GODROP_TOKENS in %s, including the one setup gave you", n, where)
+				out.skip("they have no name here; edit that file to change them, and restart the service")
+			}
+			if src.inDocker != "" {
+				out.printf("\n")
+				out.skip("named tokens live in the container:")
+				out.command(src.inDocker + "list")
 			}
 			return nil
 		},
@@ -157,7 +231,13 @@ func newTokenRevokeCmd() *cobra.Command {
 		Short: "Revoke a token by name",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			store, _, err := openTokenStore(cmd)
+			src := resolveTokens(cmd)
+			if src.inDocker != "" {
+				return fmt.Errorf(`this installation keeps its token file inside the container:
+
+  %srevoke %s`, src.inDocker, args[0])
+			}
+			store, err := src.store()
 			if err != nil {
 				return err
 			}
