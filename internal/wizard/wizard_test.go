@@ -1,6 +1,7 @@
 package wizard
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -116,6 +117,39 @@ func TestValidatePort(t *testing.T) {
 		if err := ValidatePort(v); err == nil {
 			t.Errorf("ValidatePort(%q) = nil, want an error", v)
 		}
+	}
+}
+
+func TestThePortQuestionAsksTheMachineToo(t *testing.T) {
+	// Not parallel: PortInUse is the seam the CLI fills in with a real bind.
+	original := PortInUse
+	t.Cleanup(func() { PortInUse = original })
+	PortInUse = func(port string) error { return errors.New("something is on " + port) }
+
+	// A number that is not a port never reaches the machine.
+	if err := validateFreePort("nonsense"); err == nil || strings.Contains(err.Error(), "something is on") {
+		t.Errorf("err = %v, want the range complaint", err)
+	}
+	if err := validateFreePort(" 8747 "); err == nil || !strings.Contains(err.Error(), "8747") {
+		t.Errorf("err = %v, want the port named as taken", err)
+	}
+	// On its own the wizard opens no sockets and asserts nothing.
+	PortInUse = original
+	if err := validateFreePort("8747"); err != nil {
+		t.Errorf("err = %v, want the wizard to keep out of the network", err)
+	}
+}
+
+func TestLimitsOptionsSayWhatRecommendedMeans(t *testing.T) {
+	t.Parallel()
+	a := Defaults()
+	if got := LimitsOptions(a)[0].Label; !strings.Contains(got, "20GB quota") {
+		t.Errorf("label = %q, want the quota in it", got)
+	}
+	// An empty quota is unlimited, which "no quota" says and " quota" does not.
+	a.MaxTotalSize = ""
+	if got := LimitsOptions(a)[0].Label; !strings.Contains(got, "no quota") {
+		t.Errorf("label = %q, want unlimited spelled out", got)
 	}
 }
 
@@ -572,9 +606,8 @@ func TestRunCollectsEveryAnswer(t *testing.T) {
 	// In order: public URL, data directory, then the four limit questions the
 	// "no" to the recommended limits opens up.
 	p := &scriptedPrompter{
-		inputs:   []string{"https://files.example.com", dataDir, "250MB", "50GB", "30d", "9000"},
-		selects:  []string{DeploySystemd, TLSNone},
-		confirms: []bool{false, false, false},
+		inputs:  []string{"https://files.example.com", dataDir, "250MB", "50GB", "30d", "9000"},
+		selects: []string{DeploySystemd, TLSNone, LimitsAdvanced},
 	}
 	got, err := Run(p, Defaults())
 	if err != nil {
@@ -590,10 +623,12 @@ func TestRunCollectsEveryAnswer(t *testing.T) {
 		got.Port != want.Port || got.Deployment != want.Deployment || got.TLS != want.TLS {
 		t.Errorf("answers = %+v, want %+v", got, want)
 	}
-	if got.Telemetry || got.Start {
-		t.Error("both confirmations answered no")
+	// The heartbeat and starting the service are not questions: they are told
+	// at the end, so the defaults survive the whole conversation.
+	if !got.Telemetry || !got.Start {
+		t.Error("nothing in the wizard asks about the heartbeat or the start")
 	}
-	if len(p.sections) != 6 {
+	if len(p.sections) != 5 {
 		t.Errorf("sections = %v, want one heading per step", p.sections)
 	}
 }
@@ -627,10 +662,10 @@ func TestRunStopsAtTheFirstFailure(t *testing.T) {
 
 func TestRunPropagatesCancellationAtEveryStep(t *testing.T) {
 	t.Parallel()
-	// With the defaults there are five: public URL, deployment, the
-	// recommended limits, start it now, and the heartbeat. Compose keeps its
-	// files in a volume, so there is no data directory to ask about.
-	for stage := range 5 {
+	// With the defaults there are three: public URL, deployment and the
+	// recommended limits. Compose keeps its files in a volume, so there is no
+	// data directory to ask about.
+	for stage := range 3 {
 		p := &scriptedPrompter{err: errCancelledForTest, failAfter: stage}
 		if _, err := Run(p, Defaults()); err == nil {
 			t.Fatalf("a cancelled prompt at step %d must abort the wizard", stage)
@@ -1024,7 +1059,7 @@ func TestTheQuestionListIsShortAndDependsOnTheAnswers(t *testing.T) {
 	}
 
 	// Setting the limits by hand opens four more questions.
-	a.DefaultLimits = false
+	a.Limits = LimitsAdvanced
 	a.TLS = TLSProxy
 	asked = applicable(QuestionsFor("linux"), a)
 	for _, want := range []string{"Maximum file size", "Storage quota", "Delete files after", "Listen port"} {
@@ -1050,10 +1085,6 @@ func TestEveryQuestionCanAnswerForItself(t *testing.T) {
 			t.Errorf("%q has no description; every question explains itself", q.Label)
 		}
 		switch q.Kind {
-		case KindConfirm:
-			if q.Bool == nil {
-				t.Errorf("%q is a confirm with nowhere to put the answer", q.Label)
-			}
 		case KindSelect:
 			if q.Options == nil || len(q.Options(a)) == 0 {
 				t.Errorf("%q is a select with no options", q.Label)

@@ -75,12 +75,6 @@ func askOne(p Prompter, q Question, a *Answers) error {
 			return err
 		}
 		*q.Str(a) = value
-	case KindConfirm:
-		value, err := p.Confirm(q.Label, q.Describe(*a), *q.Bool(a))
-		if err != nil {
-			return err
-		}
-		*q.Bool(a) = value
 	}
 	if q.Normalize != nil {
 		q.Normalize(a)
@@ -88,20 +82,14 @@ func askOne(p Prompter, q Question, a *Answers) error {
 	return nil
 }
 
-// sectionDesc is the one line under a heading.
+// sectionDesc is the one line under a heading. A section with nothing to add
+// says nothing.
 func sectionDesc(section string) string {
-	switch section {
-	case "Public address":
-		return "Where will people reach this server?"
-	case "Service":
-		return "How GoDrop should run on this machine."
-	case "HTTPS":
-		return "How this server gets its certificate."
-	case "Storage":
-		return "Where files are kept."
-	case "Limits":
-		return "How much, and for how long."
-	default:
-		return ""
-	}
+	return map[string]string{
+		"Public address": "Where will people reach this server?",
+		"Service":        "How GoDrop should run on this machine.",
+		"HTTPS":          "How this server gets its certificate.",
+		"Storage":        "Where files are kept.",
+		"Limits":         "How much, and for how long.",
+	}[section]
 }

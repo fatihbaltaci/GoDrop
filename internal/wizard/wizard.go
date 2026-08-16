@@ -44,8 +44,9 @@ type Answers struct {
 	Telemetry     bool
 	ExternalCheck bool
 	Image         string
-	// DefaultLimits keeps the recommended sizes and skips those questions.
-	DefaultLimits bool
+	// Limits is which of the two setup paths the operator took: the
+	// recommended sizes, or the questions that set them by hand.
+	Limits string
 	// Start runs the service and checks it when setup finishes.
 	Start bool
 }
@@ -62,7 +63,7 @@ func Defaults() Answers {
 		TokenName:     "default",
 		Telemetry:     true,
 		ExternalCheck: true,
-		DefaultLimits: true,
+		Limits:        LimitsRecommended,
 		Start:         true,
 		Image:         "ghcr.io/fatihbaltaci/godrop:latest",
 	}
@@ -76,6 +77,42 @@ const (
 	TLSProxy = "proxy" // something in front terminates TLS
 	TLSNone  = "none"  // plain http, which is right on a private network
 )
+
+// The two ways to answer the limits: take the recommended ones, or set them.
+const (
+	LimitsRecommended = "recommended"
+	LimitsAdvanced    = "advanced"
+)
+
+// AdvancedLimits reports whether the sizes, the expiry and the port are being
+// set by hand. Anything else, including an unanswered wizard, takes the
+// recommended ones.
+func AdvancedLimits(a Answers) bool { return a.Limits == LimitsAdvanced }
+
+// LimitsOptions names both paths and says what the recommended one contains.
+//
+// This used to be "use the recommended limits?" with a yes and a no, which
+// asks the operator to agree to values it does not show and hides the fact
+// that "no" means four more questions. A choice between two named routes,
+// each summarised, is the same decision without the guessing.
+func LimitsOptions(a Answers) []Option {
+	quota := a.MaxTotalSize
+	if quota == "" {
+		quota = "no"
+	}
+	return []Option{
+		{
+			Label: "Recommended: " + a.MaxFileSize + " per file, " + quota + " quota, no expiry",
+			Value: LimitsRecommended,
+			Desc:  "the values almost everyone wants",
+		},
+		{
+			Label: "Advanced: set the sizes, the expiry and the port yourself",
+			Value: LimitsAdvanced,
+			Desc:  "four more questions",
+		},
+	}
+}
 
 // TLSOptions offers the ways to get https, in the order most people want
 // them. Automatic only appears for a public name, because Let's Encrypt
@@ -369,6 +406,22 @@ func ValidatePort(s string) error {
 		return errors.New("must be a number between 1 and 65535")
 	}
 	return nil
+}
+
+// PortInUse answers whether something is already listening. The wizard is
+// data and opens no sockets, so the CLI fills this in with a real bind; on its
+// own the wizard asserts nothing about the machine.
+var PortInUse = func(string) error { return nil }
+
+// validateFreePort is the port question's validation: a number in range, and
+// nobody else on it. A port that is taken is worth saying while the answer is
+// being typed, not after the files are written and the service will not come
+// up.
+func validateFreePort(s string) error {
+	if err := ValidatePort(s); err != nil {
+		return err
+	}
+	return PortInUse(strings.TrimSpace(s))
 }
 
 // EnvFile renders the .env file. It is the single source of truth for the

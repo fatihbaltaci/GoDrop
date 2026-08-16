@@ -47,7 +47,11 @@ are skipped automatically when there is no terminal.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := newOutput(cmd)
 			answers.ExternalCheck = answers.ExternalCheck && !skipExternal
-			answers.DefaultLimits = !setLimits && !anyLimitFlagSet(cmd)
+			// A limit given on the command line is the same statement as
+			// choosing the advanced path in the wizard.
+			if setLimits || anyLimitFlagSet(cmd) {
+				answers.Limits = wizard.LimitsAdvanced
+			}
 			if dataDir != "" {
 				answers.DataDir = dataDir
 			}
@@ -72,7 +76,11 @@ are skipped automatically when there is no terminal.`,
 					return err
 				}
 				answers = collected
-				answers.Start = answers.Start || start
+				// Starting it is not a question any more. Nobody sets a
+				// service up in order to leave it stopped, and the check that
+				// follows is the only thing that proves the answers were
+				// right. --start=false is still honoured for the rare case.
+				answers.Start = !cmd.Flags().Changed("start") || start
 				prompter = newInteractivePrompter(out)
 				echoAnswers(out, answers)
 			default:
@@ -96,7 +104,7 @@ are skipped automatically when there is no terminal.`,
 			// Everything the answers depend on is checked before a single file
 			// is written, because a wizard that fails after the last question
 			// has wasted the whole conversation.
-			if err := preflight(cmd.Context(), out, prompter, answers, outDir); err != nil {
+			if err := preflight(cmd.Context(), out, prompter, &answers, outDir, interactiveRun); err != nil {
 				return err
 			}
 
@@ -171,7 +179,8 @@ are skipped automatically when there is no terminal.`,
 	_ = f.MarkHidden("non-interactive")
 	f.BoolVar(&force, "force", false, "overwrite existing configuration files")
 	f.BoolVar(&skipExternal, "no-external-check", false, "do not ask godrop.sh to verify reachability")
-	f.BoolVar(&start, "start", false, "start the service when setup finishes")
+	f.BoolVar(&start, "start", false,
+		"start the service when setup finishes (interactive setup does anyway; --start=false stops it)")
 	f.StringVar(&outDir, "out-dir", "", "where to write the generated files (default: working directory)")
 	return cmd
 }
@@ -468,5 +477,16 @@ func printFinish(out *output, a wizard.Answers, outDir string) {
 	}
 	out.command("GODROP_URL=" + base)
 	out.command("GODROP_TOKEN=" + a.Token)
-	out.printf("\n  It can learn the rest by itself: %s/llms.txt\n\n", base)
+	out.printf("\n  It can learn the rest by itself: %s/llms.txt\n", base)
+
+	// The heartbeat is told, not asked. A yes/no in the middle of setup buys
+	// nothing that this cannot: it says exactly what leaves the machine, and
+	// the command that stops it is right there to copy.
+	if a.Telemetry {
+		out.heading("Anonymous heartbeat")
+		out.skip("once a day: {install_id, version, os, arch, deploy}")
+		out.skip("no file names, no counts, no addresses, no base URL")
+		out.hint("turn it off any time with: godrop telemetry off")
+	}
+	out.printf("\n")
 }

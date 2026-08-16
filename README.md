@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="site/demo.svg" alt="Uploading photo.jpg with curl and getting back a hard-to-guess URL" width="695">
+  <img src="site/demo.svg" alt="Uploading photo.jpg with curl and getting back a hard-to-guess URL" width="779">
 </p>
 
 That is the whole idea. Downloads need no token; uploads and deletes do.
@@ -106,43 +106,59 @@ gh attestation verify godrop_1.1.0_linux_amd64.tar.gz --repo fatihbaltaci/GoDrop
 $ godrop init
 
   GoDrop 1.1.0 setup
+  Upload a file, get a hard-to-guess URL.
 
   Public address
   ? Public URL              https://files.example.com
-  Storage
-  ? Data directory          /var/lib/godrop
-  ? Maximum file size       100MB
-  ? Storage quota           20GB
-  ? Delete files after      (never)
-  HTTPS
-  ? Certificate             automatic, from Let's Encrypt
   Service
-  ? Deployment style        docker compose
-  Finishing up
-  ? Anonymous heartbeat     yes
-  ? Verify reachability     yes
+  ? How should it run?      docker compose
+  HTTPS
+  ? Certificate             GoDrop gets one from Let's Encrypt
+  Limits
+  ? Settings                Recommended: 100MB per file, 20GB quota, no expiry
 
-  Written
-  ✓ .env  (chmod 600, contains your token)
-  ✓ docker-compose.yml
+Checks
+  ✓ storage                docker volume godrop-data
+  ✓ output directory       /home/you/.godrop
+  ✓ docker compose         available
+  ✓ port                   443 is free
 
-  Your API token
-  ┌────────────────────────────────────────┐
-  │ gd_7f3a9c2e1b8d4a6f0c5e2d9b3a7f1e4c    │
-  └────────────────────────────────────────┘
+Written
+  ✓ /home/you/.godrop/.env  (chmod 600, contains your token)
+  ✓ /home/you/.godrop/docker-compose.yml
+
+Your API token
+
+  ┌─────────────────────────────────────┐
+  │ gd_7f3a9c2e1b8d4a6f0c5e2d9b3a7f1e4c │
+  └─────────────────────────────────────┘
+
   ⚠ shown once and never again, so copy it now
 
-  Verifying
-  ✓ 127.0.0.1:443         listening
-  ✓ firewall              ufw allows port 443
-  ✓ firewall              ufw allows port 80
-  ✓ external access       reachable (HTTP 200, from FRA)
+Starting
+  ✓ containers started
+
+Verifying
+  ✓ firewall               ufw allows port 443
+  ✓ firewall               ufw allows port 80
+  ✓ external access        reachable (HTTP 200, from FRA)
+
+Anonymous heartbeat
+  - once a day: {install_id, version, os, arch, deploy}
+  → turn it off any time with: godrop telemetry off
 ```
 
-Answering "automatic" is all HTTPS takes: GoDrop gets the certificate itself
-and renews it, so there is no proxy to install and nothing to configure. The
-question only offers it for a name Let's Encrypt can actually issue for, and
-the listen port question disappears, because serving TLS means 443.
+Four questions, and the last one is a choice between the recommended limits and
+setting them yourself. Everything the answers depend on is checked before a
+single file is written, so a setup that cannot work says so at the start rather
+than at the end, and the service is started and verified here rather than left
+as a command to paste.
+
+Answering "GoDrop gets one from Let's Encrypt" is all HTTPS takes: it obtains
+the certificate itself and renews it, so there is no proxy to install and
+nothing to configure. The question only offers it for a name Let's Encrypt can
+actually issue for, and the listen port question disappears, because serving
+TLS means 443.
 
 Every question shows its default and can be answered with a flag instead, so CI
 and agents run the same code path without a terminal. Prompts are skipped
@@ -362,7 +378,7 @@ Flags:
       --out-dir string          where to write the generated files (default: working directory)
       --port string             listen port (default "8747")
       --retention string        delete files after this long, e.g. 30d
-      --start                   start the service when setup finishes
+      --start                   start the service when setup finishes (interactive setup does anyway; --start=false stops it)
       --telemetry               send the anonymous daily heartbeat (default true)
       --tls string              auto (Let's Encrypt), file, proxy or none
       --tls-cert string         certificate chain in PEM, with --tls=file
@@ -1033,7 +1049,8 @@ GoDrop sends one anonymous heartbeat per day:
 
 That is the entire payload: no file names, no counts, no addresses, no base
 URL. It exists to answer "how many installations are there, on what, and how
-many are stuck on an old version".
+many are stuck on an old version". Setup does not ask about it: it says what is
+sent, at the end, along with the command that stops it.
 
 ```bash
 godrop telemetry status --json   # shows the exact body that would be sent

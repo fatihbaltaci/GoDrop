@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,16 @@ import (
 	"github.com/fatihbaltaci/GoDrop/internal/wizard"
 )
 
+// TestMain keeps the whole suite off this machine's real ports. Setup refuses
+// to write a configuration it cannot start, so a test that binds for real
+// would pass or fail according to whatever else happens to be listening on
+// the developer's laptop. Tests that care about a busy port say so themselves,
+// with stubTooling.
+func TestMain(m *testing.M) {
+	listenOn = func(string) (io.Closer, error) { return io.NopCloser(strings.NewReader("")), nil }
+	os.Exit(m.Run())
+}
+
 // stubTooling replaces the three seams the checks use, so a test can describe
 // a machine with or without docker, sudo and a free port.
 type stubTooling struct {
@@ -19,7 +30,10 @@ type stubTooling struct {
 	ran      []string
 	runErr   error
 	listenAs error
-	root     bool
+	// busy names the ports that listenAs applies to. Empty means all of them,
+	// which is the machine where nothing nearby is free either.
+	busy map[string]bool
+	root bool
 }
 
 func (s *stubTooling) install(t *testing.T) {
@@ -47,8 +61,9 @@ func (s *stubTooling) install(t *testing.T) {
 		return s.runErr
 	}
 	runCommand, runQuietly = record, record
-	listenOn = func(string) (io.Closer, error) {
-		if s.listenAs != nil {
+	listenOn = func(addr string) (io.Closer, error) {
+		_, port, _ := net.SplitHostPort(addr)
+		if s.listenAs != nil && (len(s.busy) == 0 || s.busy[port]) {
 			return nil, s.listenAs
 		}
 		return io.NopCloser(strings.NewReader("")), nil
@@ -77,7 +92,7 @@ func TestPreflightPassesOnAnOrdinaryMachine(t *testing.T) {
 	var buf strings.Builder
 	a := answersIn(t, wizard.DeployCompose)
 	a.DataDir = ""
-	if err := preflight(t.Context(), &output{w: &buf}, &flagPrompter{}, a, t.TempDir()); err != nil {
+	if err := preflight(t.Context(), &output{w: &buf}, &flagPrompter{}, &a, t.TempDir(), false); err != nil {
 		t.Fatalf("preflight: %v", err)
 	}
 	text := buf.String()
@@ -94,7 +109,7 @@ func TestPreflightCreatesTheDataDirectory(t *testing.T) {
 
 	a := answersIn(t, wizard.DeployEnv)
 	var buf strings.Builder
-	if err := preflight(t.Context(), &output{w: &buf}, &flagPrompter{}, a, t.TempDir()); err != nil {
+	if err := preflight(t.Context(), &output{w: &buf}, &flagPrompter{}, &a, t.TempDir(), false); err != nil {
 		t.Fatalf("preflight: %v", err)
 	}
 	if !strings.Contains(buf.String(), "(created)") {
@@ -122,7 +137,7 @@ func TestPreflightOffersSudoForADirectoryItCannotCreate(t *testing.T) {
 	a.DataDir = filepath.Join(parent, "godrop")
 
 	var buf strings.Builder
-	err := preflight(t.Context(), &output{w: &buf}, &flagPrompter{}, a, t.TempDir())
+	err := preflight(t.Context(), &output{w: &buf}, &flagPrompter{}, &a, t.TempDir(), false)
 	// The stub "sudo" does nothing, so the directory is still missing and the
 	// wizard stops, which is the point: it stops before writing anything.
 	if err == nil {
@@ -148,7 +163,7 @@ func TestPreflightSaysWhatToRunWhenThereIsNoSudo(t *testing.T) {
 	a.DataDir = filepath.Join(parent, "godrop")
 
 	var buf strings.Builder
-	err := preflight(t.Context(), &output{w: &buf}, &flagPrompter{}, a, t.TempDir())
+	err := preflight(t.Context(), &output{w: &buf}, &flagPrompter{}, &a, t.TempDir(), false)
 	if err == nil {
 		t.Fatal("preflight should stop, not carry on to write files")
 	}
@@ -169,7 +184,8 @@ func TestPreflightStopsWhenTheOutputDirectoryIsNotWritable(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(outDir, 0o700) })
 
 	var buf strings.Builder
-	err := preflight(t.Context(), &output{w: &buf}, &flagPrompter{}, answersIn(t, wizard.DeployEnv), outDir)
+	a := answersIn(t, wizard.DeployEnv)
+	err := preflight(t.Context(), &output{w: &buf}, &flagPrompter{}, &a, outDir, false)
 	if err == nil || !strings.Contains(buf.String(), "--out-dir") {
 		t.Errorf("err = %v, output = %s", err, buf.String())
 	}
@@ -195,7 +211,7 @@ func TestPreflightReportsMissingTooling(t *testing.T) {
 			tooling.install(t)
 			var buf strings.Builder
 			a := answersIn(t, tc.deployment)
-			if err := preflight(t.Context(), &output{w: &buf}, &flagPrompter{}, a, t.TempDir()); err != nil {
+			if err := preflight(t.Context(), &output{w: &buf}, &flagPrompter{}, &a, t.TempDir(), false); err != nil {
 				t.Fatalf("missing tooling is a warning, not a failure: %v", err)
 			}
 			if !strings.Contains(buf.String(), tc.want) {
@@ -205,16 +221,115 @@ func TestPreflightReportsMissingTooling(t *testing.T) {
 	}
 }
 
-func TestPreflightReportsAPortThatIsTaken(t *testing.T) {
-	tooling := &stubTooling{found: map[string]bool{}, listenAs: errors.New("address already in use")}
+// busyPort describes a machine where the port GoDrop wants is taken and the
+// one above it is not.
+func busyPort(t *testing.T, port string) *stubTooling {
+	t.Helper()
+	tooling := &stubTooling{
+		found:    map[string]bool{},
+		listenAs: errors.New("address already in use"),
+		busy:     map[string]bool{port: true},
+	}
 	tooling.install(t)
+	return tooling
+}
+
+func TestPreflightRefusesToWriteForABusyPort(t *testing.T) {
+	busyPort(t, "8747")
 	var buf strings.Builder
 	a := answersIn(t, wizard.DeployEnv)
-	if err := preflight(t.Context(), &output{w: &buf}, &flagPrompter{}, a, t.TempDir()); err != nil {
-		t.Fatal(err)
+	a.Port = "8747"
+	// Nobody to ask: the setup stops here, with the flag that fixes it, rather
+	// than writing files for a service that cannot come up.
+	err := preflight(t.Context(), &output{w: &buf}, &flagPrompter{}, &a, t.TempDir(), false)
+	if err == nil || !strings.Contains(err.Error(), "--port 8748") {
+		t.Fatalf("err = %v", err)
 	}
 	if !strings.Contains(buf.String(), "already in use") {
 		t.Errorf("output = %s", buf.String())
+	}
+}
+
+func TestPreflightOffersTheNextFreePort(t *testing.T) {
+	busyPort(t, "8747")
+	var buf strings.Builder
+	a := answersIn(t, wizard.DeployEnv)
+	a.Port = "8747"
+	// flagPrompter answers a confirmation with its default, which here is yes.
+	if err := preflight(t.Context(), &output{w: &buf}, &flagPrompter{}, &a, t.TempDir(), true); err != nil {
+		t.Fatal(err)
+	}
+	if a.Port != "8748" {
+		t.Errorf("port = %q, want the free one", a.Port)
+	}
+	if !strings.Contains(buf.String(), "8748 is free") {
+		t.Errorf("output = %s", buf.String())
+	}
+}
+
+func TestPreflightStopsWhenTheOfferedPortIsDeclined(t *testing.T) {
+	busyPort(t, "8747")
+	a := answersIn(t, wizard.DeployEnv)
+	a.Port = "8747"
+	err := preflight(t.Context(), &output{w: io.Discard}, &decliningPrompter{}, &a, t.TempDir(), true)
+	if err == nil || !strings.Contains(err.Error(), "8747 is already in use") {
+		t.Fatalf("err = %v", err)
+	}
+	if a.Port != "8747" {
+		t.Errorf("port = %q; declining changes nothing", a.Port)
+	}
+}
+
+func TestPreflightPropagatesACancelledPortOffer(t *testing.T) {
+	busyPort(t, "8747")
+	a := answersIn(t, wizard.DeployEnv)
+	a.Port = "8747"
+	err := preflight(t.Context(), &output{w: io.Discard}, &cancellingPrompter{}, &a, t.TempDir(), true)
+	if !errors.Is(err, errCancelled) {
+		t.Errorf("err = %v, want the cancellation", err)
+	}
+}
+
+func TestPreflightWhenNothingNearbyIsFree(t *testing.T) {
+	// listenAs with no busy list: every port fails, so there is nothing to
+	// offer and the message has to name the flag instead.
+	tooling := &stubTooling{found: map[string]bool{}, listenAs: errors.New("address already in use")}
+	tooling.install(t)
+	a := answersIn(t, wizard.DeployEnv)
+	a.Port = "8747"
+	err := preflight(t.Context(), &output{w: io.Discard}, &flagPrompter{}, &a, t.TempDir(), true)
+	if err == nil || !strings.Contains(err.Error(), "--port <port>") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestThePortQuestionKnowsWhatIsListening(t *testing.T) {
+	// The check the wizard borrows from here, in all three of its answers.
+	busyPort(t, "8747")
+	if err := wizard.PortInUse("8747"); err == nil || !strings.Contains(err.Error(), "already listening") {
+		t.Errorf("err = %v, want the busy port reported", err)
+	}
+	if err := wizard.PortInUse("8748"); err != nil {
+		t.Errorf("err = %v, want a free port to pass", err)
+	}
+
+	// A port that needs privileges is not a port somebody else holds: the
+	// generated unit and docker both arrange for those.
+	privileged := &stubTooling{found: map[string]bool{}, listenAs: os.ErrPermission}
+	privileged.install(t)
+	if err := wizard.PortInUse("443"); err != nil {
+		t.Errorf("err = %v, want a privileged port to pass", err)
+	}
+}
+
+func TestNextFreePortNeedsANumber(t *testing.T) {
+	if got := nextFreePort("http"); got != "" {
+		t.Errorf("nextFreePort = %q, want nothing to offer", got)
+	}
+	// One below the top of the range: there is no port above it to move to.
+	busyPort(t, "65535")
+	if got := nextFreePort("65535"); got != "" {
+		t.Errorf("nextFreePort = %q, want nothing above 65535", got)
 	}
 }
 
@@ -225,7 +340,7 @@ func TestPreflightExplainsAPrivilegedPort(t *testing.T) {
 	a := answersIn(t, wizard.DeploySystemd)
 	a.BaseURL = "https://files.example.com"
 	a.TLS = wizard.TLSAuto
-	if err := preflight(t.Context(), &output{w: &buf}, &flagPrompter{}, a, t.TempDir()); err != nil {
+	if err := preflight(t.Context(), &output{w: &buf}, &flagPrompter{}, &a, t.TempDir(), false); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(buf.String(), "CAP_NET_BIND_SERVICE") || !strings.Contains(buf.String(), "unit") {
@@ -277,7 +392,7 @@ func TestPreflightCreatesTheDirectoryWithSudo(t *testing.T) {
 	var buf strings.Builder
 	// The stub creates it despite the unwritable parent, so the check passes.
 	_ = os.Chmod(parent, 0o700)
-	if err := preflight(t.Context(), &output{w: &buf}, &flagPrompter{}, a, t.TempDir()); err != nil {
+	if err := preflight(t.Context(), &output{w: &buf}, &flagPrompter{}, &a, t.TempDir(), false); err != nil {
 		t.Fatalf("preflight: %v", err)
 	}
 }
@@ -296,7 +411,7 @@ func TestPreflightStopsWhenSudoIsDeclined(t *testing.T) {
 	a := answersIn(t, wizard.DeployEnv)
 	a.DataDir = filepath.Join(parent, "godrop")
 	var buf strings.Builder
-	err := preflight(t.Context(), &output{w: &buf}, &decliningPrompter{}, a, t.TempDir())
+	err := preflight(t.Context(), &output{w: &buf}, &decliningPrompter{}, &a, t.TempDir(), false)
 	if err == nil {
 		t.Fatal("saying no should stop the wizard, not carry on")
 	}
@@ -318,7 +433,7 @@ func TestPreflightPropagatesACancelledConfirmation(t *testing.T) {
 
 	a := answersIn(t, wizard.DeployEnv)
 	a.DataDir = filepath.Join(parent, "godrop")
-	err := preflight(t.Context(), &output{w: io.Discard}, &cancellingPrompter{}, a, t.TempDir())
+	err := preflight(t.Context(), &output{w: io.Discard}, &cancellingPrompter{}, &a, t.TempDir(), false)
 	if !errors.Is(err, errCancelled) {
 		t.Errorf("err = %v, want the cancellation", err)
 	}
@@ -356,7 +471,7 @@ func TestPreflightReportsAFailingSudo(t *testing.T) {
 
 	a := answersIn(t, wizard.DeployEnv)
 	a.DataDir = filepath.Join(parent, "godrop")
-	err := preflight(t.Context(), &output{w: io.Discard}, &flagPrompter{}, a, t.TempDir())
+	err := preflight(t.Context(), &output{w: io.Discard}, &flagPrompter{}, &a, t.TempDir(), false)
 	if err == nil || !strings.Contains(err.Error(), "with sudo") {
 		t.Errorf("err = %v, want the sudo failure reported", err)
 	}
@@ -377,7 +492,7 @@ func TestPreflightSucceedsWhenSudoFixesTheDirectory(t *testing.T) {
 	a := answersIn(t, wizard.DeployEnv)
 	a.DataDir = dir
 	var buf strings.Builder
-	if err := preflight(t.Context(), &output{w: &buf}, &flagPrompter{}, a, t.TempDir()); err != nil {
+	if err := preflight(t.Context(), &output{w: &buf}, &flagPrompter{}, &a, t.TempDir(), false); err != nil {
 		t.Fatalf("preflight: %v", err)
 	}
 	if !strings.Contains(buf.String(), "created with sudo") {
@@ -402,7 +517,7 @@ func TestPreflightWithoutAnOutputDirectoryUsesTheWorkingOne(t *testing.T) {
 	// No port either: nothing to check about one that was never chosen.
 	a.Port = ""
 	var buf strings.Builder
-	if err := preflight(t.Context(), &output{w: &buf}, &flagPrompter{}, a, ""); err != nil {
+	if err := preflight(t.Context(), &output{w: &buf}, &flagPrompter{}, &a, "", false); err != nil {
 		t.Fatalf("preflight: %v", err)
 	}
 	if !strings.Contains(buf.String(), "output directory") {

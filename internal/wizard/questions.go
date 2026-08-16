@@ -5,11 +5,10 @@ import "runtime"
 // Kind is the shape of a question.
 type Kind int
 
-// The three shapes a question can take.
+// The two shapes a question can take.
 const (
 	KindInput Kind = iota
 	KindSelect
-	KindConfirm
 )
 
 // Question describes one thing the wizard asks, as data rather than as code,
@@ -31,9 +30,8 @@ type Question struct {
 	Options func(a Answers) []Option
 	// Validate rejects an answer, for an input.
 	Validate func(string) error
-	// Str and Bool point at the field this question fills in.
-	Str  func(a *Answers) *string
-	Bool func(a *Answers) *bool
+	// Str points at the field this question fills in.
+	Str func(a *Answers) *string
 	// Normalize tidies the answer once it has been given.
 	Normalize func(a *Answers)
 }
@@ -116,20 +114,19 @@ func QuestionsFor(goos string) []Question {
 		},
 		{
 			Section: "Limits",
-			Label:   "Use the recommended limits?",
-			Desc: func(a Answers) string {
-				return "100MB per file, a " + a.MaxTotalSize + " quota, files kept until deleted, " +
-					"and no rate limit. Answer no to set them yourself."
-			},
-			Kind: KindConfirm,
-			Bool: func(a *Answers) *bool { return &a.DefaultLimits },
+			Label:   "Settings",
+			Desc: static("Whichever you pick, every value ends up in .env and can be changed " +
+				"there later."),
+			Kind:    KindSelect,
+			Options: LimitsOptions,
+			Str:     func(a *Answers) *string { return &a.Limits },
 		},
 		{
 			Section:  "Limits",
 			Label:    "Maximum file size",
 			Desc:     static("For example 100MB, 2GB. Anything larger is rejected with 413."),
 			Kind:     KindInput,
-			Ask:      func(a Answers) bool { return !a.DefaultLimits },
+			Ask:      AdvancedLimits,
 			Validate: ValidateSize,
 			Str:      func(a *Answers) *string { return &a.MaxFileSize },
 		},
@@ -139,7 +136,7 @@ func QuestionsFor(goos string) []Question {
 			Desc: static("For example 20GB. Uploads stop with 507 once this much is stored. " +
 				"Empty means unlimited, and a full disk takes the whole server down with it."),
 			Kind:     KindInput,
-			Ask:      func(a Answers) bool { return !a.DefaultLimits },
+			Ask:      AdvancedLimits,
 			Validate: ValidateOptionalSize,
 			Str:      func(a *Answers) *string { return &a.MaxTotalSize },
 		},
@@ -149,7 +146,7 @@ func QuestionsFor(goos string) []Question {
 			Desc: static("For example 30d, 12h. Empty keeps files until someone deletes them, and " +
 				"each upload can still ask for its own expiry."),
 			Kind:     KindInput,
-			Ask:      func(a Answers) bool { return !a.DefaultLimits },
+			Ask:      AdvancedLimits,
 			Validate: ValidateRetention,
 			Str:      func(a *Answers) *string { return &a.Retention },
 		},
@@ -158,25 +155,9 @@ func QuestionsFor(goos string) []Question {
 			Label:    "Listen port",
 			Desc:     static("For example 8747. The port GoDrop binds to on this machine."),
 			Kind:     KindInput,
-			Ask:      func(a Answers) bool { return !a.DefaultLimits && !ServesTLS(a) },
-			Validate: ValidatePort,
+			Ask:      func(a Answers) bool { return AdvancedLimits(a) && !ServesTLS(a) },
+			Validate: validateFreePort,
 			Str:      func(a *Answers) *string { return &a.Port },
-		},
-		{
-			Section: "Finishing up",
-			Label:   "Start it now and check that it works?",
-			Desc: static("Starts the service, waits for it to answer, and runs `godrop doctor` " +
-				"against it. Nothing is sent anywhere."),
-			Kind: KindConfirm,
-			Bool: func(a *Answers) *bool { return &a.Start },
-		},
-		{
-			Section: "Finishing up",
-			Label:   "Send an anonymous daily heartbeat?",
-			Desc: static("Exactly this, once a day: {install_id, version, os, arch, deploy}. " +
-				"No file names, no counters, no addresses. Turn it off any time with `godrop telemetry off`."),
-			Kind: KindConfirm,
-			Bool: func(a *Answers) *bool { return &a.Telemetry },
 		},
 	}
 }

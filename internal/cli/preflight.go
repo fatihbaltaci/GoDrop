@@ -36,6 +36,20 @@ var (
 	osExecutable = os.Executable
 )
 
+// The wizard cannot open a socket for itself, so the port question borrows
+// this one. A port that needs privileges is not a port that is taken: the
+// generated unit and docker both arrange for those, so only a real listener
+// counts as an answer worth showing.
+func init() {
+	wizard.PortInUse = func(port string) error {
+		err := portInUse(port)
+		if err == nil || isPermission(err) {
+			return nil
+		}
+		return fmt.Errorf("something is already listening on %s", port)
+	}
+}
+
 // preflight checks what the setup is about to depend on, before it writes
 // anything at all.
 //
@@ -43,18 +57,17 @@ var (
 // files be written, and then finding out that the data directory needs root.
 // Anything that can be fixed here is offered as a fix; anything that cannot
 // stops the wizard while nothing has been created yet.
-func preflight(ctx context.Context, out *output, p wizard.Prompter, a wizard.Answers, outDir string) error {
+func preflight(ctx context.Context, out *output, p wizard.Prompter, a *wizard.Answers, outDir string, canAsk bool) error {
 	out.heading("Checks")
 
-	if err := checkDataDir(ctx, out, p, a); err != nil {
+	if err := checkDataDir(ctx, out, p, *a); err != nil {
 		return err
 	}
 	if err := checkOutDir(out, outDir); err != nil {
 		return err
 	}
-	checkTooling(ctx, out, a)
-	checkPort(out, a)
-	return nil
+	checkTooling(ctx, out, *a)
+	return checkPort(out, p, a, canAsk)
 }
 
 // checkDataDir makes sure uploads have somewhere to go, and offers sudo when
@@ -163,25 +176,76 @@ func checkTooling(ctx context.Context, out *output, a wizard.Answers) {
 
 // checkPort reports a port that is already taken, which is the other way a
 // finished setup fails at the first start.
-func checkPort(out *output, a wizard.Answers) {
-	port := wizard.ListenPort(a)
+// checkPort will not let setup write a configuration that cannot start.
+//
+// Setup starts the service at the end, so a port somebody else already holds
+// is not a warning: it is that failure, arriving a minute early and with
+// nothing written yet. When there is somebody to ask, the next free port is
+// offered rather than the whole conversation thrown away.
+func checkPort(out *output, p wizard.Prompter, a *wizard.Answers, canAsk bool) error {
+	port := wizard.ListenPort(*a)
 	if port == "" {
-		return
+		return nil
 	}
-	closer, err := listenOn(net.JoinHostPort("", port))
-	switch {
+	switch err := portInUse(port); {
 	case err == nil:
-		_ = closer.Close()
 		out.success("%-22s %s is free", "port", port)
+		return nil
 	case isPermission(err):
 		// Ports below 1024 need a capability the wizard has already arranged
 		// for in the unit it writes, and Docker publishes them regardless.
 		out.skip("%-22s %s needs root or CAP_NET_BIND_SERVICE, which the generated %s handles",
 			"port", port, deploymentName(a.Deployment))
-	default:
-		out.warn("%-22s %s is already in use", "port", port)
-		out.hint("stop whatever is listening, or choose another port")
+		return nil
 	}
+
+	out.fail("%-22s %s is already in use", "port", port)
+	free := nextFreePort(port)
+	if canAsk && free != "" {
+		ok, err := p.Confirm("Use port "+free+" instead?",
+			"Something else is already listening on "+port+".", true)
+		if err != nil {
+			return err
+		}
+		if ok {
+			a.Port = free
+			out.success("%-22s %s is free", "port", free)
+			return nil
+		}
+	}
+	if free == "" {
+		return fmt.Errorf("port %s is already in use; stop whatever is listening, "+
+			"or run again with --port <port>", port)
+	}
+	return fmt.Errorf("port %s is already in use; stop whatever is listening, "+
+		"or run again with --port %s", port, free)
+}
+
+// portInUse reports whether something is already listening, by trying to
+// listen itself: no other check consults the whole story (another process, a
+// container, a socket in TIME_WAIT, a permission).
+func portInUse(port string) error {
+	closer, err := listenOn(net.JoinHostPort("", port))
+	if err != nil {
+		return err
+	}
+	return closer.Close()
+}
+
+// nextFreePort looks just above the busy one, where a person would look. It
+// gives up rather than wander: an empty answer means "say so and stop".
+func nextFreePort(port string) string {
+	n, err := strconv.Atoi(port)
+	if err != nil {
+		return ""
+	}
+	for candidate := n + 1; candidate <= n+20 && candidate <= 65535; candidate++ {
+		next := strconv.Itoa(candidate)
+		if portInUse(next) == nil {
+			return next
+		}
+	}
+	return ""
 }
 
 func deploymentName(deployment string) string {

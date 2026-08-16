@@ -30,6 +30,8 @@ SESSION = [
     ("note", "# no token needed to download, and nobody can guess the URL"),
 ]
 
+PROMPT = "$ "
+
 # Layout, in pixels. The advance is 0.6em, which every monospace font uses.
 FONT = 14
 ADVANCE = FONT * 0.6
@@ -37,7 +39,12 @@ LINE = 22
 PAD_X = 20
 PAD_Y = 16
 BAR = 34
-COLUMNS = 78
+# The window is as wide as the widest line, never narrower than this. Measuring
+# the session rather than fixing a width is what keeps a URL from running off
+# the right-hand edge when a line in it gets longer.
+MIN_COLUMNS = 78
+COLUMNS = max(MIN_COLUMNS, max(len(PROMPT if kind == "in" else "") + len(text)
+                               for kind, text in SESSION) + 1)
 
 # Timing, in seconds.
 TYPE_PER_CHAR = 0.032
@@ -46,8 +53,6 @@ BETWEEN_OUTPUT = 0.09
 AFTER_BLOCK = 0.7
 HOLD = 2.6
 START = 0.5
-
-PROMPT = "$ "
 
 
 def runs(kind: str, text: str):

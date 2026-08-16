@@ -117,11 +117,6 @@ func fieldFor(q wizard.Question, s *formState) huh.Field {
 			DescriptionFunc(describe, &s.answers).
 			OptionsFunc(func() []huh.Option[string] { return optionsFor(q, s) }, &s.answers).
 			Accessor(&guarded[string]{state: s, field: q.Str})
-	case wizard.KindConfirm:
-		return huh.NewConfirm().
-			Title(q.Label).
-			DescriptionFunc(describe, &s.answers).
-			Accessor(&guarded[bool]{state: s, field: q.Bool})
 	default:
 		field := huh.NewInput().
 			Title(q.Label).
