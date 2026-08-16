@@ -111,7 +111,9 @@ file deletes itself when it runs out:
       -H "X-Expires-In: 7d" -F "file=@invoice.pdf" %s/upload
 
 The response then carries "expires_at" in RFC 3339. Retention is a maximum: a
-request for longer than this instance keeps anything is capped at it.
+request for longer than this instance keeps anything is capped at it. Caches
+are told to hold the file no longer than its expiry, so it stops being served
+rather than only stopping being stored.
 
 ## Put a link in a pull request
 
@@ -150,6 +152,13 @@ ETags are supported.
       %s/f/<id>/<name>
 
 Returns 204 on success, 404 if it was already gone.
+
+A delete undoes storing a file, not publishing it. The server stops answering
+for that URL at once, but a URL that has already been shared may still be
+served for a while by a cache nobody here controls, and GitHub's image proxy
+keeps a copy of anything rendered in a pull request or an issue. Treat what
+goes up as public and permanent, and check a screenshot before uploading it
+rather than after.
 
 ## Model Context Protocol
 

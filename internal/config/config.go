@@ -29,12 +29,18 @@ const (
 	DefaultDataDir            = "./data"
 	DefaultMaxFileSize        = 100 << 20 // 100MB
 	DefaultMaxFilesPerRequest = 20
-	DefaultReadHeaderTimeout  = 10 * time.Second
-	DefaultIdleTimeout        = 120 * time.Second
-	DefaultShutdownTimeout    = 30 * time.Second
-	DefaultCORSOrigins        = "*"
-	DefaultLogFormat          = "json"
-	DefaultLogLevel           = "info"
+	// A download URL always answers with the same bytes, so a year is what a
+	// browser and a CDN are told to keep it for. It is also how long a file
+	// that has been deleted can go on being served by a cache that was told
+	// that, which is why it is a setting: an operator who would rather a
+	// delete took effect everywhere trades the caching away for it.
+	DefaultCacheMaxAge       = 365 * 24 * time.Hour
+	DefaultReadHeaderTimeout = 10 * time.Second
+	DefaultIdleTimeout       = 120 * time.Second
+	DefaultShutdownTimeout   = 30 * time.Second
+	DefaultCORSOrigins       = "*"
+	DefaultLogFormat         = "json"
+	DefaultLogLevel          = "info"
 )
 
 // Config is the fully resolved configuration. Zero values are meaningful:
@@ -61,6 +67,9 @@ type Config struct {
 	MaxFilesPerRequest int
 	MaxTotalSize       int64
 	Retention          time.Duration
+	// CacheMaxAge is how long a download may be held by anything between the
+	// server and the reader. Zero forbids caching altogether.
+	CacheMaxAge time.Duration
 
 	RateLimit     *Rate
 	AuthRateLimit *Rate
@@ -145,6 +154,11 @@ func LoadFrom(env Getenv) (*Config, error) {
 		fail("GODROP_RETENTION", err)
 	} else if cfg.Retention < 0 {
 		fail("GODROP_RETENTION", errors.New("must not be negative"))
+	}
+	if cfg.CacheMaxAge, err = durationOr(env, "GODROP_CACHE_MAX_AGE", DefaultCacheMaxAge); err != nil {
+		fail("GODROP_CACHE_MAX_AGE", err)
+	} else if cfg.CacheMaxAge < 0 {
+		fail("GODROP_CACHE_MAX_AGE", errors.New("must not be negative"))
 	}
 
 	if cfg.RateLimit, err = rateOr(env, "GODROP_RATE_LIMIT"); err != nil {

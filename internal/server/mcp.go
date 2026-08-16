@@ -486,9 +486,11 @@ func (s *Server) mcpTools(base string) []mcpTool {
 			Annotations:  mcpAnnotations{},
 		},
 		{
-			Name:         toolDelete,
-			Title:        "Delete an uploaded file",
-			Description:  "Remove a file this instance is hosting. Pass the URL that " + toolUpload + " returned; the link stops working at once.",
+			Name:  toolDelete,
+			Title: "Delete an uploaded file",
+			Description: "Remove a file this instance is hosting. Pass the URL that " + toolUpload +
+				" returned. The server stops answering for it at once, but a URL that has already been " +
+				"shared may still come from a cache, so this undoes storing a file rather than publishing it.",
 			InputSchema:  json.RawMessage(deleteSchema),
 			OutputSchema: json.RawMessage(deleteOutputSchema),
 			Annotations:  mcpAnnotations{DestructiveHint: true, IdempotentHint: true},
@@ -517,7 +519,7 @@ const uploadSchema = `{
     },
     "expires_in": {
       "type": "string",
-      "description": "Optional lifetime such as \"30m\", \"12h\" or \"7d\". The file deletes itself when it runs out. Leave it out to keep the file for as long as this instance keeps anything."
+      "description": "Optional lifetime such as \"30m\", \"12h\" or \"7d\". The server deletes the file and stops answering for it when it runs out, and tells caches to hold it no longer than that. Leave it out to keep the file for as long as this instance keeps anything."
     }
   },
   "required": ["filename", "content_base64"],
@@ -663,7 +665,9 @@ func (s *Server) mcpUpload(r *http.Request, args json.RawMessage, token string) 
 
 	text := info.URL
 	if info.ExpiresAt != "" {
-		text += "\n\nThis link stops working at " + info.ExpiresAt + "."
+		// What the server can promise is that it stops answering. A copy a
+		// cache took while the link was live is not this server's to recall.
+		text += "\n\nThe server stops serving this at " + info.ExpiresAt + "."
 	}
 	return &callToolResult{
 		Content: []mcpContent{
@@ -691,7 +695,9 @@ func (s *Server) mcpDelete(r *http.Request, args json.RawMessage, token string) 
 	case err == nil:
 		s.log.Info("delete", "id", ShortID(id), "token", token, "ip", clientIP(r))
 		return &callToolResult{
-			Content:           []mcpContent{{Type: "text", Text: "Deleted. The link no longer works."}},
+			Content: []mcpContent{{Type: "text", Text: "Deleted from the server. " +
+				"A URL that has already been shared may still be served for a while " +
+				"by a cache, so treat anything that went up as public."}},
 			StructuredContent: mcpDeleted{Deleted: true, URL: in.URL},
 		}, nil
 	case errors.Is(err, storage.ErrNotFound), errors.Is(err, storage.ErrInvalidID):

@@ -535,10 +535,41 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	h.Set("Referrer-Policy", "no-referrer")
-	h.Set("Cache-Control", "public, max-age=31536000, immutable")
+	h.Set("Cache-Control", s.cacheControl(id))
 	h.Set("ETag", `"`+id+`"`)
 
 	http.ServeContent(w, r, name, info.ModTime(), f)
+}
+
+// cacheControl decides how long a download may be kept by everything between
+// here and whoever reads it: the browser, a CDN, a company's proxy.
+//
+// The bytes at a URL never change, so caching them is free performance, and
+// that is what the setting is for. An upload that expires is a different
+// promise: a cache told to keep it for a year would go on serving it long
+// after this server stopped, so it may only be held until the moment it goes
+// away, and never as immutable, which is a client's permission not to ask
+// again.
+//
+// What this cannot do is reach a copy already taken. A URL that has been
+// published is served from caches nobody here controls, GitHub's image proxy
+// among them, which is why deleting one is a request rather than a guarantee.
+func (s *Server) cacheControl(id string) string {
+	age := s.cfg.CacheMaxAge
+	expires, expiring := storage.ExpiresAt(id)
+	if expiring {
+		if left := expires.Sub(s.now()); left < age {
+			age = left
+		}
+	}
+	if age <= 0 {
+		return "no-store"
+	}
+	value := fmt.Sprintf("public, max-age=%d", int64(age.Seconds()))
+	if expiring {
+		return value
+	}
+	return value + ", immutable"
 }
 
 func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request, token string) {

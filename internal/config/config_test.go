@@ -34,6 +34,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Retention != 0 {
 		t.Errorf("Retention = %v, want 0 (keep forever)", cfg.Retention)
 	}
+	if cfg.CacheMaxAge != DefaultCacheMaxAge {
+		t.Errorf("CacheMaxAge = %v, want a year", cfg.CacheMaxAge)
+	}
 	if cfg.RateLimit != nil || cfg.AuthRateLimit != nil {
 		t.Error("rate limits should be disabled by default")
 	}
@@ -78,6 +81,7 @@ func TestLoadFullEnvironment(t *testing.T) {
 		"GODROP_MAX_FILES_PER_REQUEST": "5",
 		"GODROP_MAX_TOTAL_SIZE":        "2GB",
 		"GODROP_RETENTION":             "30d",
+		"GODROP_CACHE_MAX_AGE":         "1h",
 		"GODROP_RATE_LIMIT":            "60/m",
 		"GODROP_AUTH_RATE_LIMIT":       "10/m",
 		"GODROP_READ_HEADER_TIMEOUT":   "5s",
@@ -111,6 +115,9 @@ func TestLoadFullEnvironment(t *testing.T) {
 	}
 	if cfg.Retention != 30*24*time.Hour {
 		t.Errorf("Retention = %v", cfg.Retention)
+	}
+	if cfg.CacheMaxAge != time.Hour {
+		t.Errorf("CacheMaxAge = %v", cfg.CacheMaxAge)
 	}
 	if cfg.RateLimit == nil || cfg.RateLimit.N != 60 || cfg.RateLimit.Period != time.Minute {
 		t.Errorf("RateLimit = %+v", cfg.RateLimit)
@@ -148,6 +155,8 @@ func TestLoadInvalidValues(t *testing.T) {
 		{"negative count", map[string]string{"GODROP_MAX_FILES_PER_REQUEST": "-2"}, "greater than zero"},
 		{"bad retention", map[string]string{"GODROP_RETENTION": "forever"}, "GODROP_RETENTION"},
 		{"negative retention", map[string]string{"GODROP_RETENTION": "-5h"}, "must not be negative"},
+		{"bad cache age", map[string]string{"GODROP_CACHE_MAX_AGE": "a while"}, "GODROP_CACHE_MAX_AGE"},
+		{"negative cache age", map[string]string{"GODROP_CACHE_MAX_AGE": "-1h"}, "must not be negative"},
 		{"bad rate", map[string]string{"GODROP_RATE_LIMIT": "60"}, "expected N/s"},
 		{"bad rate unit", map[string]string{"GODROP_RATE_LIMIT": "60/fortnight"}, "unit must be"},
 		{"bad rate count", map[string]string{"GODROP_RATE_LIMIT": "zero/m"}, "positive integer"},

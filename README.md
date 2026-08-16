@@ -945,6 +945,7 @@ durations accept `30d`, `12h`, `90m`; rates accept `60/m`, `10/s`, `100/h`.
 | `GODROP_MAX_FILES_PER_REQUEST` | `20` | Files per multipart request |
 | `GODROP_MAX_TOTAL_SIZE` | *(unlimited)* | Storage quota → `507` |
 | `GODROP_RETENTION` | *(forever)* | Delete uploads older than this |
+| `GODROP_CACHE_MAX_AGE` | `8760h` | How long caches may hold a download; also how long a deleted one can outlive the delete. `0` forbids caching |
 | `GODROP_RATE_LIMIT` | *(off)* | Uploads per token |
 | `GODROP_AUTH_RATE_LIMIT` | *(off)* | Failed authentications per client address |
 | `GODROP_CORS_ORIGINS` | `*` | Browser origins allowed to call the API |
@@ -1215,6 +1216,12 @@ startup, with the reason, rather than failing in a retry loop afterwards.
   quota, and optional per-token and per-address rate limits
 - **Logs are not a key ring**: the random half of an identifier is cut short
   before it is written to a log, so a log reader cannot rebuild a download URL
+- **A delete is not an unpublish**: the server stops answering for the URL at
+  once, and an expiring upload tells caches to hold it no longer than that, but
+  a URL already shared may still be served by a cache nobody here controls, and
+  GitHub's image proxy keeps its own copy of anything rendered in a thread.
+  Check a screenshot before uploading it. `GODROP_CACHE_MAX_AGE` is the knob
+  for an operator who would rather a delete took effect everywhere quickly
 
 [SECURITY.md](SECURITY.md) sets out what GoDrop defends, what it deliberately
 does not, and a hardening checklist. Found something? Open a security advisory

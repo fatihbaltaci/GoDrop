@@ -128,6 +128,11 @@ Add `?dl=1` to force a download instead of inline rendering.
 curl -sS -X DELETE -H "Authorization: Bearer $GODROP_TOKEN" "$url"
 ```
 
+A delete undoes storing a file, not publishing it: the server stops answering
+for that URL at once, but one that has already been shared may still come from
+a cache for a while, and GitHub's image proxy keeps its own copy of anything
+rendered in a thread. **Check a screenshot before uploading it, not after.**
+
 `204` on success, `404` if it was already gone. **Keep the URL from the upload
 response**: there is no listing endpoint, and a file whose URL is lost cannot
 be found again.
