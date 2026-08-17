@@ -642,8 +642,14 @@ func (s *Server) handleStats(w http.ResponseWriter, _ *http.Request, _ string) {
 		"bytes_human": config.FormatSize(bytes),
 		"quota_bytes": s.cfg.MaxTotalSize,
 		"max_file":    s.cfg.MaxFileSize,
-		"uptime_s":    int64(s.now().Sub(s.started).Seconds()),
-		"version":     s.version,
+		// How long a file lasts when it did not ask for something shorter, so
+		// that a client can say when one goes rather than guess at it. An
+		// upload only carries expires_at when it asked, so without this the
+		// answer is not available anywhere a client can read. 0 means kept
+		// forever, as it does for quota_bytes.
+		"retention_seconds": int64(s.cfg.Retention.Seconds()),
+		"uptime_s":          int64(s.now().Sub(s.started).Seconds()),
+		"version":           s.version,
 	})
 }
 

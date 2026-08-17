@@ -215,6 +215,11 @@ paths:
                   bytes_human: { type: string }
                   quota_bytes: { type: integer, description: 0 means unlimited }
                   max_file: { type: integer }
+                  retention_seconds:
+                    type: integer
+                    description: >-
+                      How long an upload lasts when it did not ask for
+                      something shorter. 0 means kept forever.
                   uptime_s: { type: integer }
                   version: { type: string }
         "401": { $ref: "#/components/responses/Error" }
