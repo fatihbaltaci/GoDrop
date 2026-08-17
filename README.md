@@ -249,6 +249,7 @@ everything, and `GET /llms.txt` describes this exact instance in plain text.
 | `GET` | `/readyz` | | readiness: is storage writable |
 | `GET` | `/stats` | ✅ | file count, bytes, quota, uptime |
 | `GET` | `/llms.txt` · `/openapi.yaml` | | machine-readable description |
+| `GET` | `/skill.md` | | the agent skill, installable by URL |
 
 ```bash
 # Several files at once: all succeed or none do, and the response lists them
@@ -321,6 +322,7 @@ browser. Give one a base URL and a token and it can discover the rest:
 ```bash
 curl https://files.example.com/llms.txt       # the whole API as plain text
 curl https://files.example.com/openapi.yaml   # machine-readable schema
+curl https://files.example.com/skill.md       # an agent skill it can keep
 ```
 
 - Every command accepts `--json`, and in that mode prints **nothing but** the
@@ -351,6 +353,14 @@ Or with the GitHub CLI, which knows where every agent keeps them:
 
 ```bash
 gh skill install fatihbaltaci/GoDrop godrop --scope user
+```
+
+Every running instance serves the same skill at `/skill.md`, so an agent that
+has been given nothing but a hostname can install it without the repository or
+the binary:
+
+```bash
+npx skills add https://files.example.com/skill.md
 ```
 
 The skill holds no secrets. It reads `GODROP_URL` and `GODROP_TOKEN` from the

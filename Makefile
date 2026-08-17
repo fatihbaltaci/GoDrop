@@ -60,7 +60,7 @@ run: ## Run a development server on port 48080 with a throwaway token
 .PHONY: docs
 docs: build ## Regenerate the generated documentation
 	sh scripts/readme-cli.sh bin/$(BINARY)
-	cp skills/godrop/SKILL.md internal/cli/skill/SKILL.md
+	cp skills/godrop/SKILL.md internal/skill/SKILL.md
 	@echo "synced the embedded skill from skills/godrop/SKILL.md"
 	python3 scripts/logo.py
 	python3 scripts/demo.py

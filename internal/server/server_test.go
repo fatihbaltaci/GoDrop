@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/fatihbaltaci/GoDrop/internal/config"
+	"github.com/fatihbaltaci/GoDrop/internal/skill"
 	"github.com/fatihbaltaci/GoDrop/internal/storage"
 	"github.com/fatihbaltaci/GoDrop/internal/tokens"
 )
@@ -787,6 +788,62 @@ func TestLLMsTxtDescribesThisInstance(t *testing.T) {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("llms.txt should contain %q", want)
 		}
+	}
+}
+
+// The skill is installed by URL, by an agent, into a directory a repository
+// usually carries. Three things have to hold: it is served at all, it is the
+// bytes the CLI would have written, and it has no token in it.
+func TestSkillIsServedAndCarriesNoToken(t *testing.T) {
+	h := newHarness(t, nil)
+	resp := h.do(t, http.MethodGet, h.URL+"/skill.md", "")
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Content-Type"); got != "text/markdown; charset=utf-8" {
+		t.Errorf("Content-Type = %q", got)
+	}
+	if !strings.HasPrefix(string(body), "---\nname: godrop") {
+		t.Error("a skill needs frontmatter naming it, or no agent will find it")
+	}
+	if string(body) != skill.Markdown {
+		t.Error("the served skill is not the one `godrop skill install` writes")
+	}
+	// A skill that shipped a working token would publish it into every
+	// repository that committed the file. The placeholder showing a token's
+	// shape is fine; this server's own token is not.
+	if strings.Contains(string(body), testToken) {
+		t.Error("the skill carries a real token, which would be published by whoever commits it")
+	}
+	if !strings.Contains(string(body), "GODROP_TOKEN") {
+		t.Error("the skill should teach the environment variable, since it cannot carry the key")
+	}
+	// A plain YAML scalar cannot carry a colon followed by a space: the parser
+	// reads it as a nested mapping, the frontmatter stops being frontmatter,
+	// and installers refuse the file rather than guess at it.
+	front, _, ok := strings.Cut(strings.TrimPrefix(string(body), "---\n"), "\n---")
+	if !ok {
+		t.Fatal("the skill has no frontmatter to check")
+	}
+	for _, line := range strings.Split(front, "\n") {
+		_, value, found := strings.Cut(line, ":")
+		if found && strings.Contains(strings.TrimSpace(value), ": ") {
+			t.Errorf("frontmatter line %q will not parse as YAML", line)
+		}
+	}
+}
+
+func TestSkillNeedsNoToken(t *testing.T) {
+	h := newHarness(t, nil)
+	// Downloads need no token and neither does this: an agent installs it
+	// before it has one.
+	resp := h.do(t, http.MethodGet, h.URL+"/skill.md", "")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d without a token", resp.StatusCode)
 	}
 }
 

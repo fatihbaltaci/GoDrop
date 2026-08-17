@@ -86,6 +86,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /{$}", s.handleUsage)
 	mux.HandleFunc("GET /llms.txt", s.handleLLMs)
 	mux.HandleFunc("GET /openapi.yaml", s.handleOpenAPI)
+	mux.HandleFunc("GET /skill.md", s.handleSkill)
 
 	mux.HandleFunc("POST /upload", s.protect(s.handleUpload))
 	mux.HandleFunc("PUT /upload/{name}", s.protect(s.handlePutUpload))

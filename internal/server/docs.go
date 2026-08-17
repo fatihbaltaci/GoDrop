@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/fatihbaltaci/GoDrop/internal/config"
+	"github.com/fatihbaltaci/GoDrop/internal/skill"
 )
 
 // handleUsage answers GET / with a short plain-text summary. It is the first
@@ -38,6 +39,7 @@ func (s *Server) usageText(base string) string {
 	fmt.Fprintf(&b, "\n  curl -X POST -H \"Authorization: Bearer $GODROP_TOKEN\" \\\n")
 	fmt.Fprintf(&b, "    -F \"file=@photo.jpg\" %s/upload\n\n", base)
 	fmt.Fprintf(&b, "  machine-readable: %s/llms.txt  %s/openapi.yaml\n", base, base)
+	fmt.Fprintf(&b, "  agent skill:      %s/skill.md\n", base)
 	return b.String()
 }
 
@@ -49,6 +51,20 @@ func (s *Server) handleLLMs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	_, _ = io.WriteString(w, s.llmsText(base))
+}
+
+// handleSkill serves the agent skill: the same bytes `godrop skill install`
+// writes, so an agent that knows only the hostname can install it with
+// `npx skills add <base>/skill.md` and get what a local install would have
+// given it.
+//
+// It carries no token and must not. The usual home for this file is a skill
+// directory inside a repository, and a key committed is a key published.
+func (s *Server) handleSkill(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	_, _ = io.WriteString(w, skill.Markdown)
 }
 
 func (s *Server) llmsText(base string) string {

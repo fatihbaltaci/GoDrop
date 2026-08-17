@@ -304,6 +304,22 @@ paths:
           content:
             text/plain:
               schema: { type: string }
+  /skill.md:
+    get:
+      operationId: skill
+      summary: An Agent Skill a coding agent can install and keep
+      description: |
+        A SKILL.md following the Agent Skills specification. The same bytes
+        "godrop skill install" writes, so an agent that knows only the
+        hostname can install it with npx skills add and this URL. It never
+        carries a token.
+      security: []
+      responses:
+        "200":
+          description: The skill
+          content:
+            text/markdown:
+              schema: { type: string }
 components:
   securitySchemes:
     bearerAuth:

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	_ "embed"
 	"errors"
 	"fmt"
 	"os"
@@ -9,18 +8,18 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/fatihbaltaci/GoDrop/internal/skill"
 )
 
 // The skill ships inside the binary, so `godrop skill install` works offline,
 // on a machine with no git, and always installs the instructions that match
-// the version being run. The repository keeps it at skills/godrop/SKILL.md,
-// which is where `gh skill install` looks.
-//
-//go:embed skill/SKILL.md
-var skillDoc string
+// the version being run. It comes from internal/skill because the server hands
+// out the same bytes at GET /skill.md.
+var skillDoc = skill.Markdown
 
 // SkillName is the directory the skill is installed as.
-const SkillName = "godrop"
+const SkillName = skill.Name
 
 // Agent directories.
 //
