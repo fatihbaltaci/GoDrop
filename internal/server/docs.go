@@ -139,6 +139,15 @@ At most %d files per request.
       -H "Authorization: Bearer $GODROP_TOKEN" \
       %s/upload/report.pdf
 
+For a file on disk, curl fills the name in itself when the path ends in a
+slash, so there is nothing to type twice:
+
+    curl -sS -T report.pdf -H "Authorization: Bearer $GODROP_TOKEN" \
+      %s/upload/
+
+It appends the name only when the URL carries no query string, so ask for an
+expiry with the X-Expires-In header rather than ?expires= in that form.
+
 ## Download
 
     curl -sS -O %s/f/<id>/<name>
@@ -214,7 +223,7 @@ file in memory.
 - Machine-readable schema: %s/openapi.yaml
 `,
 		base, s.version,
-		base, base, base, base, base, s.cfg.MaxFilesPerRequest, base, base, base,
+		base, base, base, base, base, s.cfg.MaxFilesPerRequest, base, base, base, base,
 		base, mcpVersion, config.FormatSize(s.mcpUploadLimit()),
 		config.FormatSize(s.cfg.MaxFileSize), s.cfg.MaxFilesPerRequest, quota, retention,
 		base, base, base)
