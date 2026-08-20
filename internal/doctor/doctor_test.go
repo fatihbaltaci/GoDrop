@@ -819,7 +819,7 @@ func TestVersionCheckReportsAnUpdate(t *testing.T) {
 	if c.Status != Warn || !strings.Contains(c.Detail, "v2.0.0") {
 		t.Errorf("update = %+v", c)
 	}
-	if !strings.Contains(c.Fix, "godrop.sh/install.sh") {
+	if !strings.Contains(c.Fix, "GoDrop/v1.3.1/install.sh") {
 		t.Error("the fix should be the install command")
 	}
 }

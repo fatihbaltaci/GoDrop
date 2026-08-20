@@ -40,7 +40,7 @@ unauthenticated and the rate limiting rule below is a WAF rule on the
 Check it end to end:
 
 ```bash
-curl -fsS https://godrop.sh/install.sh | head -3
+curl -fsS https://raw.githubusercontent.com/fatihbaltaci/GoDrop/v1.3.1/install.sh | head -3
 curl -fsS -X POST -H 'content-type: application/json' \
   -d '{"url":"https://files.example.com/healthz"}' \
   https://godrop.sh/api/check

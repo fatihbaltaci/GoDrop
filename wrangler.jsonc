@@ -2,7 +2,7 @@
 //
 // Deployed by Cloudflare Workers Builds on every push to main. The build
 // command copies install.sh into the asset directory so that
-// https://godrop.sh/install.sh serves the same file the repository holds:
+// https://raw.githubusercontent.com/fatihbaltaci/GoDrop/v1.3.1/install.sh serves the same file the repository holds:
 //
 //   Build command:   cp install.sh site/install.sh
 //   Deploy command:  npx wrangler deploy

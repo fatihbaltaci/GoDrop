@@ -740,7 +740,7 @@ func (r *runner) checkVersion(ctx context.Context) {
 	current := strings.TrimPrefix(r.Version, "v")
 	if latest != "" && strings.TrimPrefix(latest, "v") != current && current != "dev" {
 		r.add("version", "update", Warn, fmt.Sprintf("%s is available (running %s)", latest, r.Version),
-			"curl -fsSL https://godrop.sh/install.sh | sh")
+			"curl -fsSL https://raw.githubusercontent.com/fatihbaltaci/GoDrop/v1.3.1/install.sh | sh")
 		return
 	}
 	r.add("version", "update", Pass, "running the latest version ("+r.Version+")", "")

@@ -1,7 +1,7 @@
 #!/bin/sh
 # GoDrop installer.
 #
-#   curl -fsSL https://godrop.sh/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/fatihbaltaci/GoDrop/v1.3.1/install.sh | sh
 #
 # Downloads the release binary for this machine, verifies its SHA-256 checksum
 # against the published SHA256SUMS, installs it, and hands over to the setup

@@ -124,7 +124,7 @@ release:
     ## Install
 
     ```bash
-    curl -fsSL https://godrop.sh/install.sh | sh
+    curl -fsSL https://raw.githubusercontent.com/fatihbaltaci/GoDrop/v1.3.1/install.sh | sh
     ```
 
     Or with Docker:

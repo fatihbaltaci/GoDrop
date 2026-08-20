@@ -86,7 +86,7 @@ can install, is in [For AI agents](#for-ai-agents).
 ## Install
 
 ```bash
-curl -fsSL https://godrop.sh/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/fatihbaltaci/GoDrop/v1.3.1/install.sh | sh
 ```
 
 The script picks the right binary for your machine, **verifies its SHA-256
@@ -1064,7 +1064,7 @@ that already exists does exactly the same thing rather than asking the
 questions again:
 
 ```bash
-curl -fsSL https://godrop.sh/install.sh | sh   # again: this is an update
+curl -fsSL https://raw.githubusercontent.com/fatihbaltaci/GoDrop/v1.3.1/install.sh | sh   # again: this is an update
 ```
 
 An installation that belongs to a package manager is refused rather than
@@ -1105,7 +1105,7 @@ tokens are readable by anything else on that network. A public address fails.
 ### A public server
 
 ```bash
-curl -fsSL https://godrop.sh/install.sh | sh    # installs and runs `godrop init`
+curl -fsSL https://raw.githubusercontent.com/fatihbaltaci/GoDrop/v1.3.1/install.sh | sh    # installs and runs `godrop init`
 ```
 
 The wizard asks how you want the certificate, and "GoDrop gets one for me" is

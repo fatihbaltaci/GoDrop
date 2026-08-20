@@ -198,7 +198,7 @@ whenever a shell is available.
 ## Running your own
 
 ```bash
-curl -fsSL https://godrop.sh/install.sh | sh    # installs, then guides setup
+curl -fsSL https://raw.githubusercontent.com/fatihbaltaci/GoDrop/v1.3.1/install.sh | sh    # installs, then guides setup
 godrop token create --name agent --json         # a token for this agent
 godrop doctor --json                            # diagnose an existing install
 ```

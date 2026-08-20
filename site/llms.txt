@@ -9,7 +9,7 @@ This file describes the project. A running GoDrop instance serves its own
 enforces, and `/openapi.yaml` alongside it.
 
 - Source: https://github.com/fatihbaltaci/GoDrop
-- Install: `curl -fsSL https://godrop.sh/install.sh | sh`
+- Install: `curl -fsSL https://raw.githubusercontent.com/fatihbaltaci/GoDrop/v1.3.1/install.sh | sh`
 - Licence: MIT
 
 ## What it does
